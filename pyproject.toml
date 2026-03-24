@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "time-lapse-creator"
+version = "0.1.0"
+description = "Cross-platform desktop timelapse recorder for multiple displays and webcam overlay."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mss>=9.0.1",
+    "numpy>=1.26.0",
+    "opencv-python>=4.10.0",
+    "Pillow>=10.4.0",
+]
+
+[project.scripts]
+time-lapse-creator = "timelapse_creator.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

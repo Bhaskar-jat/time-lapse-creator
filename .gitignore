@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*.spec
+.DS_Store
+build/
+dist/
+recordings/
+.venv/
