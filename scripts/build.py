@@ -4,6 +4,8 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 
@@ -14,8 +16,17 @@ BUILD_DIR = ROOT / "build"
 SRC_DIR = ROOT / "src"
 
 
-def run_command(command: list[str]) -> None:
-    subprocess.run(command, cwd=ROOT, check=True)
+def run_command(command: list[str], retries: int = 0, retry_delay_seconds: float = 2.0) -> None:
+    attempts_remaining = retries + 1
+    while attempts_remaining > 0:
+        try:
+            subprocess.run(command, cwd=ROOT, check=True)
+            return
+        except subprocess.CalledProcessError:
+            attempts_remaining -= 1
+            if attempts_remaining == 0:
+                raise
+            time.sleep(retry_delay_seconds)
 
 
 def clean_artifacts() -> None:
@@ -71,20 +82,42 @@ def create_dmg() -> Path:
     if dmg_path.exists():
         dmg_path.unlink()
 
-    run_command(
-        [
-            "hdiutil",
-            "create",
-            "-volname",
-            APP_NAME,
-            "-srcfolder",
-            str(dmg_staging_dir),
-            "-ov",
-            "-format",
-            "UDZO",
-            str(dmg_path),
-        ]
-    )
+    with tempfile.TemporaryDirectory(dir=BUILD_DIR) as temp_dir_name:
+        temp_dir = Path(temp_dir_name)
+        temp_rw_dmg = temp_dir / "Time-Lapse-Creator-temp.dmg"
+        temp_final_dmg = temp_dir / "Time-Lapse-Creator.dmg"
+
+        run_command(
+            [
+                "hdiutil",
+                "create",
+                "-volname",
+                APP_NAME,
+                "-srcfolder",
+                str(dmg_staging_dir),
+                "-ov",
+                "-format",
+                "UDRW",
+                str(temp_rw_dmg),
+            ],
+            retries=2,
+        )
+
+        run_command(
+            [
+                "hdiutil",
+                "convert",
+                str(temp_rw_dmg),
+                "-ov",
+                "-format",
+                "UDZO",
+                "-o",
+                str(temp_final_dmg),
+            ],
+            retries=2,
+        )
+
+        shutil.move(temp_final_dmg, dmg_path)
     return dmg_path
 
 
