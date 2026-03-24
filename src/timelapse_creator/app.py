@@ -104,6 +104,7 @@ class TimeLapseApp:
         self.main_frame: tk.Frame | None = None
         self._preview_image: ImageTk.PhotoImage | None = None
         self._theme_buttons: list[tk.Button] = []
+        self._preset_preview_canvases: list[tk.Canvas] = []
         self._custom_color_buttons: list[ttk.Button] = []
         self._glow_layers: dict[str, tk.Canvas] = {}
 
@@ -289,13 +290,39 @@ class TimeLapseApp:
 
         tk.Label(
             settings_card,
+            text="Preset previews",
+            bg=self.colors["surface"],
+            fg=self.colors["muted"],
+            font=("SF Pro Text", 10, "bold"),
+        ).grid(row=9, column=0, sticky="w", pady=(16, 8))
+        preset_row = tk.Frame(settings_card, bg=self.colors["surface"])
+        preset_row.grid(row=10, column=0, sticky="w")
+        self._preset_preview_canvases = []
+        for index, preset_name in enumerate(THEME_PRESETS):
+            preview = tk.Canvas(
+                preset_row,
+                width=58,
+                height=26,
+                bg=self.colors["surface"],
+                bd=0,
+                highlightthickness=1,
+                highlightbackground=self.colors["border"],
+                cursor="hand2",
+            )
+            preview.grid(row=0, column=index, padx=(0, 8))
+            preview.bind("<Button-1>", lambda _event, theme=preset_name: self._select_theme_preview(theme))
+            self._preset_preview_canvases.append(preview)
+        self._render_theme_previews()
+
+        tk.Label(
+            settings_card,
             text="Quick accent colors",
             bg=self.colors["surface"],
             fg=self.colors["muted"],
             font=("SF Pro Text", 10, "bold"),
-        ).grid(row=9, column=0, sticky="w", pady=(18, 8))
+        ).grid(row=11, column=0, sticky="w", pady=(18, 8))
         swatch_row = tk.Frame(settings_card, bg=self.colors["surface"])
-        swatch_row.grid(row=10, column=0, sticky="w")
+        swatch_row.grid(row=12, column=0, sticky="w")
         self._theme_buttons = []
         for index, (primary, secondary) in enumerate(ACCENT_SWATCHES):
             swatch_button = tk.Button(
@@ -319,9 +346,9 @@ class TimeLapseApp:
             bg=self.colors["surface"],
             fg=self.colors["muted"],
             font=("SF Pro Text", 10, "bold"),
-        ).grid(row=11, column=0, sticky="w", pady=(18, 8))
+        ).grid(row=13, column=0, sticky="w", pady=(18, 8))
         custom_row = tk.Frame(settings_card, bg=self.colors["surface"])
-        custom_row.grid(row=12, column=0, sticky="w")
+        custom_row.grid(row=14, column=0, sticky="w")
         self.custom_bg_button = ttk.Button(
             custom_row,
             text="Background",
@@ -392,6 +419,10 @@ class TimeLapseApp:
     def _configure_styles(self) -> None:
         style = ttk.Style()
         style.theme_use("clam")
+        self.root.option_add("*TCombobox*Listbox*Background", self.colors["surface_alt"])
+        self.root.option_add("*TCombobox*Listbox*Foreground", self.colors["text"])
+        self.root.option_add("*TCombobox*Listbox*selectBackground", self.colors["accent"])
+        self.root.option_add("*TCombobox*Listbox*selectForeground", self.colors["text"])
 
         accent_pressed = self._mix_color(self.colors["accent"], self.colors["bg"], 0.28)
         neutral_bg = self._mix_color(self.colors["surface_alt"], self.colors["text"], 0.08)
@@ -652,6 +683,10 @@ class TimeLapseApp:
         self._save_theme_preferences()
         self._apply_theme(rebuild=True)
 
+    def _select_theme_preview(self, theme_name: str) -> None:
+        self.theme_name_var.set(theme_name)
+        self._change_theme_preset()
+
     def _apply_accent_pair(self, accent: str, accent_2: str) -> None:
         if self.rendering or self.recorder.get_state() != RecorderState.IDLE:
             messagebox.showinfo("Recording active", "Stop the current recording before changing theme colors.")
@@ -808,6 +843,7 @@ class TimeLapseApp:
 
     def _sync_theme_ui(self) -> None:
         self.theme_name_var.set(self.theme_name)
+        self._render_theme_previews()
 
     def _capture_mode_label(self, capture_mode: CaptureMode) -> str:
         if capture_mode == CaptureMode.CAMERA_ONLY:
@@ -879,47 +915,80 @@ class TimeLapseApp:
         layer.delete("glow")
         parent.update_idletasks()
 
-        center_x = button.winfo_x() + (button.winfo_width() / 2)
-        center_y = button.winfo_y() + (button.winfo_height() / 2)
-        base_radius = max(button.winfo_width(), button.winfo_height()) * 0.34
+        left = button.winfo_x()
+        top = button.winfo_y()
+        right = left + button.winfo_width()
+        bottom = top + button.winfo_height()
 
-        outer = layer.create_oval(0, 0, 0, 0, fill=color, outline="", stipple="gray25", tags="glow")
-        inner = layer.create_oval(0, 0, 0, 0, fill=self._mix_color(color, "#ffffff", 0.18), outline="", stipple="gray50", tags="glow")
+        outer = layer.create_rectangle(0, 0, 0, 0, fill=color, outline="", stipple="gray50", tags="glow")
+        inner = layer.create_rectangle(
+            0,
+            0,
+            0,
+            0,
+            fill=self._mix_color(color, "#ffffff", 0.14),
+            outline="",
+            stipple="gray50",
+            tags="glow",
+        )
 
         def _animate(step: int = 0) -> None:
             if not layer.winfo_exists():
                 return
-            if step > 8:
+            if step > 6:
                 layer.delete("glow")
                 return
 
-            growth = step / 8
-            outer_radius = base_radius + (base_radius * 1.25 * growth)
-            inner_radius = base_radius * 0.72 + (base_radius * 0.68 * growth)
+            growth = step / 6
+            outer_pad_x = 2 + (4 * growth)
+            outer_pad_y = 1 + (3 * growth)
+            inner_pad_x = 1 + (2 * growth)
+            inner_pad_y = 1 + growth
 
             layer.coords(
                 outer,
-                center_x - outer_radius,
-                center_y - outer_radius,
-                center_x + outer_radius,
-                center_y + outer_radius,
+                left - outer_pad_x,
+                top - outer_pad_y,
+                right + outer_pad_x,
+                bottom + outer_pad_y,
             )
             layer.coords(
                 inner,
-                center_x - inner_radius,
-                center_y - inner_radius,
-                center_x + inner_radius,
-                center_y + inner_radius,
+                left - inner_pad_x,
+                top - inner_pad_y,
+                right + inner_pad_x,
+                bottom + inner_pad_y,
             )
 
-            if step >= 6:
+            if step >= 4:
                 layer.itemconfigure(outer, stipple="gray50")
-            if step >= 7:
+            if step >= 5:
+                layer.itemconfigure(outer, stipple="gray75")
+            if step >= 4:
                 layer.itemconfigure(inner, stipple="gray25")
+            if step >= 5:
+                layer.itemconfigure(inner, stipple="gray50")
 
-            layer.after(22, lambda: _animate(step + 1))
+            layer.after(20, lambda: _animate(step + 1))
 
         _animate()
+
+    def _render_theme_previews(self) -> None:
+        for canvas, preset_name in zip(self._preset_preview_canvases, THEME_PRESETS):
+            if not canvas.winfo_exists():
+                continue
+
+            preset = THEME_PRESETS[preset_name]
+            canvas.delete("all")
+            width = int(canvas.cget("width"))
+            height = int(canvas.cget("height"))
+            border_color = self.colors["accent"] if preset_name == self.theme_name else self.colors["border"]
+            canvas.configure(highlightbackground=border_color, highlightcolor=border_color)
+            canvas.create_rectangle(0, 0, width, height, fill=preset["bg"], outline="")
+            canvas.create_rectangle(4, 4, (width // 2) + 1, height - 4, fill=preset["accent"], outline="")
+            canvas.create_rectangle((width // 2) - 1, 4, width - 4, height - 4, fill=preset["accent_2"], outline="")
+            if preset_name == self.theme_name:
+                canvas.create_rectangle(1, 1, width - 1, height - 1, outline=self.colors["text"], width=1)
 
     def _set_theme_buttons_state(self, state: str) -> None:
         for button in self._theme_buttons:
