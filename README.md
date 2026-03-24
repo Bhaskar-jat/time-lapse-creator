@@ -14,6 +14,8 @@ Small cross-platform Python desktop app that records all connected displays as a
 - Lets you change the save location from the app window before starting a recording.
 - Lets you switch between `Merged screens + camera` and `Camera only` capture modes.
 - Remembers the last-used save folder and capture mode between app launches.
+- Opens with a pink gradient theme by default.
+- Includes multiple built-in themes, quick accent presets, and custom color pickers for the background and buttons.
 - Renders the captured screenshots into a video when you press `Stop`.
 
 ## Why the timing works

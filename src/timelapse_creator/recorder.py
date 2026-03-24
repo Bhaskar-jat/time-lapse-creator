@@ -98,6 +98,11 @@ class SettingsStore:
         with self.settings_path.open("w", encoding="utf-8") as settings_file:
             json.dump(settings, settings_file, indent=2)
 
+    def update(self, updates: dict[str, str]) -> None:
+        settings = self.load()
+        settings.update(updates)
+        self.save(settings)
+
 
 class CameraFeed:
     def __init__(self, camera_index: int = 0) -> None:
@@ -200,7 +205,7 @@ class TimeLapseRecorder:
                 self.config.capture_mode = CaptureMode.MERGED_WITH_CAMERA
 
     def _save_settings(self) -> None:
-        self.settings_store.save(
+        self.settings_store.update(
             {
                 "recordings_dir": str(self.config.recordings_dir),
                 "capture_mode": self.config.capture_mode.value,
