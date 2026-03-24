@@ -97,6 +97,10 @@ class TimeLapseApp:
 
         self.closing = False
         self.rendering = False
+        self.container_frame: tk.Frame | None = None
+        self.scroll_canvas: tk.Canvas | None = None
+        self.scrollbar: ttk.Scrollbar | None = None
+        self._canvas_window_id: int | None = None
         self.main_frame: tk.Frame | None = None
         self._preview_image: ImageTk.PhotoImage | None = None
         self._theme_buttons: list[tk.Button] = []
@@ -120,8 +124,27 @@ class TimeLapseApp:
         self.capture_mode_var = tk.StringVar()
         self.theme_name_var = tk.StringVar(value=self.theme_name)
 
-        self.main_frame = tk.Frame(self.root, bg=self.colors["bg"], padx=24, pady=24)
-        self.main_frame.pack(fill=tk.BOTH, expand=True)
+        self.container_frame = tk.Frame(self.root, bg=self.colors["bg"])
+        self.container_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.scroll_canvas = tk.Canvas(
+            self.container_frame,
+            bg=self.colors["bg"],
+            highlightthickness=0,
+            bd=0,
+        )
+        self.scrollbar = ttk.Scrollbar(self.container_frame, orient=tk.VERTICAL, command=self.scroll_canvas.yview)
+        self.scroll_canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.scroll_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.main_frame = tk.Frame(self.scroll_canvas, bg=self.colors["bg"], padx=24, pady=24)
+        self._canvas_window_id = self.scroll_canvas.create_window((0, 0), window=self.main_frame, anchor="nw")
+        self.main_frame.bind("<Configure>", self._on_main_frame_configure)
+        self.scroll_canvas.bind("<Configure>", self._on_canvas_configure)
+        self._bind_mousewheel()
+
         self.main_frame.grid_columnconfigure(0, weight=1)
         self.main_frame.grid_columnconfigure(1, weight=1)
         self.main_frame.grid_rowconfigure(3, weight=1)
@@ -843,7 +866,7 @@ class TimeLapseApp:
             bd=0,
         )
         layer.place(x=0, y=0, relwidth=1, relheight=1)
-        layer.lower()
+        layer.tk.call("lower", layer._w)
         self._glow_layers[layer_key] = layer
         return layer
 
@@ -939,9 +962,54 @@ class TimeLapseApp:
             self._rebuild_ui()
 
     def _rebuild_ui(self) -> None:
-        if self.main_frame is not None and self.main_frame.winfo_exists():
-            self.main_frame.destroy()
+        self._unbind_mousewheel()
+        if self.container_frame is not None and self.container_frame.winfo_exists():
+            self.container_frame.destroy()
+        self.container_frame = None
+        self.scroll_canvas = None
+        self.scrollbar = None
+        self._canvas_window_id = None
+        self.main_frame = None
         self._build_ui()
+
+    def _on_main_frame_configure(self, _event: object | None = None) -> None:
+        if self.scroll_canvas is None or not self.scroll_canvas.winfo_exists():
+            return
+        self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all"))
+
+    def _on_canvas_configure(self, event: tk.Event[tk.Canvas]) -> None:
+        if self.scroll_canvas is None or self._canvas_window_id is None:
+            return
+        canvas_width = max(event.width, 1)
+        self.scroll_canvas.itemconfigure(self._canvas_window_id, width=canvas_width)
+
+    def _bind_mousewheel(self) -> None:
+        self.root.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.root.bind_all("<Shift-MouseWheel>", self._on_mousewheel)
+        self.root.bind_all("<Button-4>", self._on_mousewheel_linux)
+        self.root.bind_all("<Button-5>", self._on_mousewheel_linux)
+
+    def _unbind_mousewheel(self) -> None:
+        self.root.unbind_all("<MouseWheel>")
+        self.root.unbind_all("<Shift-MouseWheel>")
+        self.root.unbind_all("<Button-4>")
+        self.root.unbind_all("<Button-5>")
+
+    def _on_mousewheel(self, event: tk.Event[tk.Misc]) -> None:
+        if self.scroll_canvas is None or not self.scroll_canvas.winfo_exists():
+            return
+        if abs(event.delta) < 1:
+            return
+        scroll_units = -1 if event.delta > 0 else 1
+        if abs(event.delta) >= 120:
+            scroll_units = int(-event.delta / 120)
+        self.scroll_canvas.yview_scroll(scroll_units, "units")
+
+    def _on_mousewheel_linux(self, event: tk.Event[tk.Misc]) -> None:
+        if self.scroll_canvas is None or not self.scroll_canvas.winfo_exists():
+            return
+        scroll_units = -1 if event.num == 4 else 1
+        self.scroll_canvas.yview_scroll(scroll_units, "units")
 
     def _resolve_theme_colors(self, theme_name: str, overrides: dict[str, str]) -> dict[str, str]:
         base = THEME_PRESETS.get(theme_name, THEME_PRESETS[DEFAULT_THEME_NAME]).copy()
@@ -1022,6 +1090,7 @@ class TimeLapseApp:
                     pass
 
         self.camera_feed.stop()
+        self._unbind_mousewheel()
         self.root.destroy()
 
 
