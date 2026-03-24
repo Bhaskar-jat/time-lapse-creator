@@ -28,8 +28,21 @@ class TimeLapseApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Time Lapse Creator")
-        self.root.geometry("460x340")
-        self.root.minsize(440, 320)
+        self.root.geometry("780x620")
+        self.root.minsize(720, 560)
+        self.colors = {
+            "bg": "#070b16",
+            "surface": "#111827",
+            "surface_alt": "#0f172a",
+            "border": "#263043",
+            "text": "#f8fafc",
+            "muted": "#94a3b8",
+            "accent": "#8b5cf6",
+            "accent_2": "#06b6d4",
+            "success": "#22c55e",
+            "warning": "#f59e0b",
+            "danger": "#f97316",
+        }
 
         self.config = AppConfig()
         self.camera_feed = CameraFeed()
@@ -44,70 +57,360 @@ class TimeLapseApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_ui(self) -> None:
-        main = ttk.Frame(self.root, padding=16)
-        main.pack(fill=tk.BOTH, expand=True)
-        main.columnconfigure(0, weight=1)
-
-        title = ttk.Label(main, text="Cross-platform Time Lapse Recorder", font=("TkDefaultFont", 13, "bold"))
-        title.grid(row=0, column=0, sticky="w")
-
+        self.root.configure(bg=self.colors["bg"])
+        self._configure_styles()
         self.status_var = tk.StringVar(value="Ready")
         self.elapsed_var = tk.StringVar(value="Recording time: 00:00:00")
         self.projected_var = tk.StringVar(value="If stopped now: [00:00:00]")
         self.frames_var = tk.StringVar(value="Captured frames: 0")
         self.output_var = tk.StringVar(value=f"Save folder: {self.recorder.get_recordings_dir()}")
         self.capture_mode_var = tk.StringVar()
+        main = tk.Frame(self.root, bg=self.colors["bg"], padx=24, pady=24)
+        main.pack(fill=tk.BOTH, expand=True)
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_columnconfigure(1, weight=1)
+        main.grid_rowconfigure(3, weight=1)
 
-        info_frame = ttk.Frame(main, padding=(0, 14, 0, 14))
-        info_frame.grid(row=1, column=0, sticky="ew")
-        info_frame.columnconfigure(0, weight=1)
+        self.hero_canvas = tk.Canvas(main, height=150, highlightthickness=0, bd=0, bg=self.colors["bg"])
+        self.hero_canvas.grid(row=0, column=0, columnspan=2, sticky="ew")
+        self.hero_canvas.bind("<Configure>", self._draw_header_gradient)
 
-        ttk.Label(info_frame, textvariable=self.status_var).grid(row=0, column=0, sticky="w", pady=2)
-        ttk.Label(info_frame, textvariable=self.elapsed_var).grid(row=1, column=0, sticky="w", pady=2)
-        ttk.Label(info_frame, textvariable=self.projected_var).grid(row=2, column=0, sticky="w", pady=2)
-        ttk.Label(info_frame, textvariable=self.frames_var).grid(row=3, column=0, sticky="w", pady=2)
-        ttk.Label(info_frame, textvariable=self.output_var, wraplength=410).grid(row=4, column=0, sticky="w", pady=2)
+        metrics = tk.Frame(main, bg=self.colors["bg"])
+        metrics.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(18, 18))
+        metrics.grid_columnconfigure(0, weight=1)
+        metrics.grid_columnconfigure(1, weight=1)
 
-        controls = ttk.Frame(main)
-        controls.grid(row=2, column=0, sticky="ew")
-        controls.columnconfigure((0, 1, 2), weight=1)
+        self._create_metric_card(metrics, "Status", self.status_var, 0, 0)
+        self._create_metric_card(metrics, "Recording Time", self.elapsed_var, 0, 1)
+        self._create_metric_card(metrics, "Video If Stopped", self.projected_var, 1, 0)
+        self._create_metric_card(metrics, "Captured Frames", self.frames_var, 1, 1)
 
-        self.start_button = ttk.Button(controls, text="Start", command=self._start_or_resume)
-        self.pause_button = ttk.Button(controls, text="Pause", command=self._pause)
-        self.stop_button = ttk.Button(controls, text="Stop", command=self._stop)
-        self.change_folder_button = ttk.Button(main, text="Change Save Folder", command=self._choose_output_folder)
+        controls_card = self._create_card(main)
+        controls_card.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 18))
+        controls_card.grid_columnconfigure(0, weight=1)
+        controls_card.grid_columnconfigure(1, weight=1)
+        controls_card.grid_columnconfigure(2, weight=1)
+
+        tk.Label(
+            controls_card,
+            text="Session Controls",
+            bg=self.colors["surface"],
+            fg=self.colors["text"],
+            font=("SF Pro Display", 13, "bold"),
+        ).grid(row=0, column=0, columnspan=3, sticky="w")
+        tk.Label(
+            controls_card,
+            text="Start, pause, or stop without losing the current recording state.",
+            bg=self.colors["surface"],
+            fg=self.colors["muted"],
+            font=("SF Pro Text", 10),
+        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 16))
+
+        self.start_button = ttk.Button(controls_card, text="Start", command=self._start_or_resume, style="Accent.TButton")
+        self.pause_button = ttk.Button(controls_card, text="Pause", command=self._pause, style="Neutral.TButton")
+        self.stop_button = ttk.Button(controls_card, text="Stop", command=self._stop, style="Danger.TButton")
+        self.change_folder_button = ttk.Button(main, text="Change Save Folder", command=self._choose_output_folder, style="Secondary.TButton")
+
+        self.start_button.grid(row=2, column=0, sticky="ew", padx=(0, 8))
+        self.pause_button.grid(row=2, column=1, sticky="ew", padx=4)
+        self.stop_button.grid(row=2, column=2, sticky="ew", padx=(8, 0))
+
+        settings_card = self._create_card(main)
+        settings_card.grid(row=3, column=0, sticky="nsew", padx=(0, 10))
+        settings_card.grid_columnconfigure(0, weight=1)
         self.capture_mode_box = ttk.Combobox(
-            main,
+            settings_card,
             state="readonly",
             textvariable=self.capture_mode_var,
             values=("Merged screens + camera", "Camera only"),
+            style="Dark.TCombobox",
         )
         self.capture_mode_box.bind("<<ComboboxSelected>>", self._change_capture_mode)
 
-        self.start_button.grid(row=0, column=0, padx=(0, 8), sticky="ew")
-        self.pause_button.grid(row=0, column=1, padx=4, sticky="ew")
-        self.stop_button.grid(row=0, column=2, padx=(8, 0), sticky="ew")
-        self.change_folder_button.grid(row=3, column=0, sticky="w", pady=(10, 0))
-        ttk.Label(main, text="Capture mode").grid(row=4, column=0, sticky="w", pady=(10, 2))
-        self.capture_mode_box.grid(row=5, column=0, sticky="ew")
-
-        preview_row = ttk.Frame(main)
-        preview_row.grid(row=6, column=0, sticky="nsew", pady=(18, 0))
-        preview_row.columnconfigure(0, weight=1)
-
-        helper = ttk.Label(
-            preview_row,
+        tk.Label(
+            settings_card,
+            text="Output and Capture",
+            bg=self.colors["surface"],
+            fg=self.colors["text"],
+            font=("SF Pro Display", 13, "bold"),
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            settings_card,
             text=(
-                "Choose between desktop capture with camera overlay or camera-only recording. The last selection is saved."
+                "Choose where sessions are saved and whether the video uses the merged desktop view or only the camera feed."
             ),
-            wraplength=295,
+            bg=self.colors["surface"],
+            fg=self.colors["muted"],
+            font=("SF Pro Text", 10),
+            wraplength=300,
             justify=tk.LEFT,
-        )
-        helper.grid(row=0, column=0, sticky="nw")
+        ).grid(row=1, column=0, sticky="w", pady=(4, 18))
 
-        self.preview_label = ttk.Label(preview_row)
-        self.preview_label.grid(row=0, column=1, sticky="se", padx=(16, 0))
+        tk.Label(
+            settings_card,
+            text="Save folder",
+            bg=self.colors["surface"],
+            fg=self.colors["muted"],
+            font=("SF Pro Text", 10, "bold"),
+        ).grid(row=2, column=0, sticky="w")
+        tk.Label(
+            settings_card,
+            textvariable=self.output_var,
+            bg=self.colors["surface"],
+            fg=self.colors["text"],
+            font=("SF Pro Text", 10),
+            wraplength=300,
+            justify=tk.LEFT,
+        ).grid(row=3, column=0, sticky="w", pady=(4, 12))
+        self.change_folder_button.grid(row=4, column=0, sticky="w")
+
+        tk.Label(
+            settings_card,
+            text="Capture mode",
+            bg=self.colors["surface"],
+            fg=self.colors["muted"],
+            font=("SF Pro Text", 10, "bold"),
+        ).grid(row=5, column=0, sticky="w", pady=(18, 6))
+        self.capture_mode_box.grid(row=6, column=0, sticky="ew")
+
+        preview_card = self._create_card(main)
+        preview_card.grid(row=3, column=1, sticky="nsew", padx=(10, 0))
+        preview_card.grid_columnconfigure(0, weight=1)
+
+        tk.Label(
+            preview_card,
+            text="Camera Preview",
+            bg=self.colors["surface"],
+            fg=self.colors["text"],
+            font=("SF Pro Display", 13, "bold"),
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            preview_card,
+            text="Live circular preview used for the webcam overlay. In camera-only mode, this becomes the full timelapse frame.",
+            bg=self.colors["surface"],
+            fg=self.colors["muted"],
+            font=("SF Pro Text", 10),
+            wraplength=300,
+            justify=tk.LEFT,
+        ).grid(row=1, column=0, sticky="w", pady=(4, 18))
+
+        self.preview_label = tk.Label(
+            preview_card,
+            bg=self.colors["surface"],
+            bd=0,
+            highlightthickness=0,
+        )
+        self.preview_label.grid(row=2, column=0, sticky="se")
         self._sync_capture_mode_ui()
+        self._draw_header_gradient()
+
+    def _configure_styles(self) -> None:
+        style = ttk.Style()
+        style.theme_use("clam")
+
+        style.configure(
+            "Accent.TButton",
+            font=("SF Pro Text", 11, "bold"),
+            foreground=self.colors["text"],
+            background=self.colors["accent"],
+            borderwidth=0,
+            padding=(14, 12),
+        )
+        style.map(
+            "Accent.TButton",
+            background=[("active", "#7c3aed"), ("disabled", "#4c1d95")],
+            foreground=[("disabled", "#d8b4fe")],
+        )
+
+        style.configure(
+            "Neutral.TButton",
+            font=("SF Pro Text", 11, "bold"),
+            foreground=self.colors["text"],
+            background="#1f2937",
+            borderwidth=0,
+            padding=(14, 12),
+        )
+        style.map(
+            "Neutral.TButton",
+            background=[("active", "#334155"), ("disabled", "#172033")],
+            foreground=[("disabled", "#64748b")],
+        )
+
+        style.configure(
+            "Danger.TButton",
+            font=("SF Pro Text", 11, "bold"),
+            foreground=self.colors["text"],
+            background="#ea580c",
+            borderwidth=0,
+            padding=(14, 12),
+        )
+        style.map(
+            "Danger.TButton",
+            background=[("active", "#f97316"), ("disabled", "#7c2d12")],
+            foreground=[("disabled", "#fdba74")],
+        )
+
+        style.configure(
+            "Secondary.TButton",
+            font=("SF Pro Text", 10, "bold"),
+            foreground=self.colors["text"],
+            background=self.colors["surface_alt"],
+            bordercolor=self.colors["border"],
+            lightcolor=self.colors["border"],
+            darkcolor=self.colors["border"],
+            borderwidth=1,
+            padding=(12, 10),
+        )
+        style.map(
+            "Secondary.TButton",
+            background=[("active", "#172033"), ("disabled", "#0b1120")],
+            foreground=[("disabled", "#64748b")],
+        )
+
+        style.configure(
+            "Dark.TCombobox",
+            fieldbackground=self.colors["surface_alt"],
+            background=self.colors["surface_alt"],
+            foreground=self.colors["text"],
+            arrowcolor=self.colors["text"],
+            bordercolor=self.colors["border"],
+            lightcolor=self.colors["border"],
+            darkcolor=self.colors["border"],
+            insertcolor=self.colors["text"],
+            padding=8,
+        )
+        style.map(
+            "Dark.TCombobox",
+            fieldbackground=[("readonly", self.colors["surface_alt"]), ("disabled", "#0b1120")],
+            foreground=[("disabled", "#64748b")],
+            selectbackground=[("readonly", self.colors["surface_alt"])],
+            selectforeground=[("readonly", self.colors["text"])],
+        )
+
+    def _create_card(self, parent: tk.Widget) -> tk.Frame:
+        return tk.Frame(
+            parent,
+            bg=self.colors["surface"],
+            highlightthickness=1,
+            highlightbackground=self.colors["border"],
+            bd=0,
+            padx=18,
+            pady=18,
+        )
+
+    def _create_metric_card(
+        self,
+        parent: tk.Widget,
+        title: str,
+        variable: tk.StringVar,
+        row: int,
+        column: int,
+    ) -> None:
+        parent.grid_rowconfigure(row, weight=1)
+        card = self._create_card(parent)
+        card.grid(row=row, column=column, sticky="nsew", padx=6, pady=6)
+        tk.Label(
+            card,
+            text=title,
+            bg=self.colors["surface"],
+            fg=self.colors["muted"],
+            font=("SF Pro Text", 10, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            card,
+            textvariable=variable,
+            bg=self.colors["surface"],
+            fg=self.colors["text"],
+            font=("SF Pro Display", 13, "bold"),
+            wraplength=280,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=(10, 0))
+
+    def _draw_header_gradient(self, _event: object | None = None) -> None:
+        if not hasattr(self, "hero_canvas"):
+            return
+
+        canvas = self.hero_canvas
+        width = max(canvas.winfo_width(), 1)
+        height = max(canvas.winfo_height(), 1)
+        canvas.delete("all")
+
+        for offset in range(height):
+            mix = offset / max(height - 1, 1)
+            canvas.create_line(0, offset, width, offset, fill=self._mix_color("#5b21b6", "#0f172a", mix))
+
+        for offset in range(width):
+            mix = offset / max(width - 1, 1)
+            color = self._mix_color("#8b5cf6", "#06b6d4", mix)
+            canvas.create_line(offset, 0, offset, height, fill=color, stipple="gray50")
+
+        canvas.create_oval(width - 170, -35, width + 40, 150, fill="#38bdf8", outline="", stipple="gray25")
+        canvas.create_oval(width - 90, 55, width + 70, 205, fill="#8b5cf6", outline="", stipple="gray25")
+
+        canvas.create_text(
+            28,
+            34,
+            anchor="nw",
+            text="Time Lapse Creator",
+            fill=self.colors["text"],
+            font=("SF Pro Display", 24, "bold"),
+        )
+        canvas.create_text(
+            28,
+            74,
+            anchor="nw",
+            width=max(width - 230, 200),
+            text="Premium multi-monitor timelapse capture with a clean desktop recorder workflow.",
+            fill="#e2e8f0",
+            font=("SF Pro Text", 11),
+        )
+
+        chip_color = self._status_color()
+        chip_text = self.status_var.get()
+        chip_width = max(116, len(chip_text) * 10 + 26)
+        chip_left = width - chip_width - 28
+        chip_top = 30
+        canvas.create_rectangle(chip_left, chip_top, chip_left + chip_width, chip_top + 34, fill=chip_color, outline="")
+        canvas.create_text(
+            chip_left + chip_width / 2,
+            chip_top + 17,
+            text=chip_text,
+            fill="#ffffff",
+            font=("SF Pro Text", 10, "bold"),
+        )
+        canvas.create_text(
+            width - 28,
+            80,
+            anchor="ne",
+            text=self.capture_mode_var.get() or "Merged screens + camera",
+            fill="#e2e8f0",
+            font=("SF Pro Text", 11, "bold"),
+        )
+        canvas.create_text(
+            width - 28,
+            106,
+            anchor="ne",
+            text="Last selection is saved",
+            fill="#cbd5e1",
+            font=("SF Pro Text", 10),
+        )
+
+    def _mix_color(self, start_hex: str, end_hex: str, fraction: float) -> str:
+        start = tuple(int(start_hex[index : index + 2], 16) for index in (1, 3, 5))
+        end = tuple(int(end_hex[index : index + 2], 16) for index in (1, 3, 5))
+        blended = tuple(int(start[channel] + (end[channel] - start[channel]) * fraction) for channel in range(3))
+        return f"#{blended[0]:02x}{blended[1]:02x}{blended[2]:02x}"
+
+    def _status_color(self) -> str:
+        if self.rendering:
+            return self.colors["warning"]
+
+        state = self.recorder.get_state()
+        if state == RecorderState.RECORDING:
+            return self.colors["success"]
+        if state == RecorderState.PAUSED:
+            return self.colors["warning"]
+        return self.colors["accent"]
 
     def _start_or_resume(self) -> None:
         if self.rendering:
