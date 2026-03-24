@@ -32,7 +32,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-build.txt
 
-      - name: Build macOS app and DMG
+      - name: Build macOS app packages
         run: python scripts/build.py
 
       - name: Upload macOS artifacts
@@ -41,6 +41,7 @@ jobs:
           name: macos-build
           path: |
             dist/Time Lapse Creator.app
+            dist/Time-Lapse-Creator-macOS.zip
             dist/Time-Lapse-Creator.dmg
 
   build-windows:
@@ -95,5 +96,6 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
           files: |
+            release-artifacts/macos/**/*.zip
             release-artifacts/macos/**/*.dmg
             release-artifacts/windows/**/*.exe

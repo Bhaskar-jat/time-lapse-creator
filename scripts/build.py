@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import platform
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -10,6 +11,7 @@ from pathlib import Path
 
 
 APP_NAME = "Time Lapse Creator"
+APP_BUNDLE_ID = "com.openai.timelapsecreator"
 ROOT = Path(__file__).resolve().parents[1]
 DIST_DIR = ROOT / "dist"
 BUILD_DIR = ROOT / "build"
@@ -52,10 +54,63 @@ def build_with_pyinstaller() -> None:
     if system == "Windows":
         command.append("--onefile")
     elif system == "Darwin":
-        command.extend(["--osx-bundle-identifier", "com.openai.timelapsecreator"])
+        command.extend(["--osx-bundle-identifier", APP_BUNDLE_ID])
 
     command.append(str(ROOT / "main.py"))
     run_command(command)
+
+
+def app_bundle_path() -> Path:
+    return DIST_DIR / f"{APP_NAME}.app"
+
+
+def configure_macos_app_bundle(app_path: Path) -> None:
+    info_plist_path = app_path / "Contents" / "Info.plist"
+    if not info_plist_path.exists():
+        raise RuntimeError(f"Expected Info.plist at {info_plist_path}")
+
+    with info_plist_path.open("rb") as plist_file:
+        info_plist = plistlib.load(plist_file)
+
+    info_plist["CFBundleIdentifier"] = APP_BUNDLE_ID
+    info_plist["CFBundleShortVersionString"] = "0.1.0"
+    info_plist["CFBundleVersion"] = "0.1.0"
+    info_plist["NSCameraUsageDescription"] = (
+        "Time Lapse Creator uses the camera to capture the webcam overlay in your timelapse."
+    )
+
+    with info_plist_path.open("wb") as plist_file:
+        plistlib.dump(info_plist, plist_file)
+
+    run_command(
+        [
+            "codesign",
+            "--force",
+            "--deep",
+            "--sign",
+            "-",
+            str(app_path),
+        ]
+    )
+
+
+def create_macos_zip(app_path: Path) -> Path:
+    zip_path = DIST_DIR / "Time-Lapse-Creator-macOS.zip"
+    if zip_path.exists():
+        zip_path.unlink()
+
+    run_command(
+        [
+            "ditto",
+            "-c",
+            "-k",
+            "--sequesterRsrc",
+            "--keepParent",
+            str(app_path),
+            str(zip_path),
+        ]
+    )
+    return zip_path
 
 
 def create_dmg() -> Path:
@@ -127,8 +182,12 @@ def main() -> int:
 
     system = platform.system()
     if system == "Darwin":
+        app_path = app_bundle_path()
+        configure_macos_app_bundle(app_path)
+        zip_path = create_macos_zip(app_path)
         dmg_path = create_dmg()
-        print(f"Created macOS app bundle at {DIST_DIR / f'{APP_NAME}.app'}")
+        print(f"Created macOS app bundle at {app_path}")
+        print(f"Created macOS ZIP at {zip_path}")
         print(f"Created macOS DMG at {dmg_path}")
     elif system == "Windows":
         print(f"Created Windows executable at {DIST_DIR / f'{APP_NAME}.exe'}")
