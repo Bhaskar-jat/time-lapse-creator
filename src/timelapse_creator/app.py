@@ -101,6 +101,7 @@ class TimeLapseApp:
         self._preview_image: ImageTk.PhotoImage | None = None
         self._theme_buttons: list[tk.Button] = []
         self._custom_color_buttons: list[ttk.Button] = []
+        self._glow_layers: dict[str, tk.Canvas] = {}
 
         self._build_ui()
         self._update_ui()
@@ -109,6 +110,7 @@ class TimeLapseApp:
     def _build_ui(self) -> None:
         self.root.configure(bg=self.colors["bg"])
         self._configure_styles()
+        self._glow_layers = {}
 
         self.status_var = tk.StringVar(value="Ready")
         self.elapsed_var = tk.StringVar(value="Recording time: 00:00:00")
@@ -377,15 +379,19 @@ class TimeLapseApp:
 
         self._configure_button_style("Accent.TButton", self.colors["accent"], self.colors["text"], (16, 12))
         self._configure_button_style("AccentPressed.TButton", accent_pressed, self.colors["text"], (15, 11))
+        self._configure_button_style("AccentPulse.TButton", self.colors["accent"], self.colors["text"], (18, 14))
 
         self._configure_button_style("Neutral.TButton", neutral_bg, self.colors["text"], (16, 12))
         self._configure_button_style("NeutralPressed.TButton", neutral_pressed, self.colors["text"], (15, 11))
+        self._configure_button_style("NeutralPulse.TButton", neutral_bg, self.colors["text"], (18, 14))
 
         self._configure_button_style("Danger.TButton", self.colors["danger"], self.colors["text"], (16, 12))
         self._configure_button_style("DangerPressed.TButton", danger_pressed, self.colors["text"], (15, 11))
+        self._configure_button_style("DangerPulse.TButton", self.colors["danger"], self.colors["text"], (18, 14))
 
         self._configure_button_style("Secondary.TButton", secondary_bg, self.colors["text"], (13, 10), borderwidth=1)
         self._configure_button_style("SecondaryPressed.TButton", secondary_pressed, self.colors["text"], (12, 9), borderwidth=1)
+        self._configure_button_style("SecondaryPulse.TButton", secondary_bg, self.colors["text"], (15, 12), borderwidth=1)
 
         style.configure(
             "Dark.TCombobox",
@@ -796,14 +802,101 @@ class TimeLapseApp:
 
         default_style = f"{style_prefix}.TButton"
         pressed_style = f"{style_prefix}Pressed.TButton"
+        pulse_style = f"{style_prefix}Pulse.TButton"
+        glow_color = self._button_glow_color(style_prefix)
+
         button.configure(style=pressed_style)
+        self._spawn_button_glow(button, glow_color)
+
+        def _pulse_button() -> None:
+            if button.winfo_exists():
+                button.configure(style=pulse_style)
 
         def _run_action() -> None:
-            if button.winfo_exists():
-                button.configure(style=default_style)
             callback()
 
-        self.root.after(110, _run_action)
+        def _restore_button() -> None:
+            if button.winfo_exists():
+                button.configure(style=default_style)
+
+        self.root.after(70, _pulse_button)
+        self.root.after(120, _run_action)
+        self.root.after(190, _restore_button)
+
+    def _button_glow_color(self, style_prefix: str) -> str:
+        if style_prefix == "Danger":
+            return self.colors["danger"]
+        if style_prefix == "Neutral":
+            return self._mix_color(self.colors["accent_2"], self.colors["text"], 0.45)
+        return self.colors["accent"]
+
+    def _get_glow_layer(self, parent: tk.Widget) -> tk.Canvas:
+        layer_key = str(parent)
+        existing = self._glow_layers.get(layer_key)
+        if existing is not None and existing.winfo_exists():
+            return existing
+
+        layer = tk.Canvas(
+            parent,
+            bg=parent.cget("bg"),
+            highlightthickness=0,
+            bd=0,
+        )
+        layer.place(x=0, y=0, relwidth=1, relheight=1)
+        layer.lower()
+        self._glow_layers[layer_key] = layer
+        return layer
+
+    def _spawn_button_glow(self, button: ttk.Button, color: str) -> None:
+        if not button.winfo_exists():
+            return
+
+        parent = button.nametowidget(button.winfo_parent())
+        layer = self._get_glow_layer(parent)
+        layer.delete("glow")
+        parent.update_idletasks()
+
+        center_x = button.winfo_x() + (button.winfo_width() / 2)
+        center_y = button.winfo_y() + (button.winfo_height() / 2)
+        base_radius = max(button.winfo_width(), button.winfo_height()) * 0.34
+
+        outer = layer.create_oval(0, 0, 0, 0, fill=color, outline="", stipple="gray25", tags="glow")
+        inner = layer.create_oval(0, 0, 0, 0, fill=self._mix_color(color, "#ffffff", 0.18), outline="", stipple="gray50", tags="glow")
+
+        def _animate(step: int = 0) -> None:
+            if not layer.winfo_exists():
+                return
+            if step > 8:
+                layer.delete("glow")
+                return
+
+            growth = step / 8
+            outer_radius = base_radius + (base_radius * 1.25 * growth)
+            inner_radius = base_radius * 0.72 + (base_radius * 0.68 * growth)
+
+            layer.coords(
+                outer,
+                center_x - outer_radius,
+                center_y - outer_radius,
+                center_x + outer_radius,
+                center_y + outer_radius,
+            )
+            layer.coords(
+                inner,
+                center_x - inner_radius,
+                center_y - inner_radius,
+                center_x + inner_radius,
+                center_y + inner_radius,
+            )
+
+            if step >= 6:
+                layer.itemconfigure(outer, stipple="gray50")
+            if step >= 7:
+                layer.itemconfigure(inner, stipple="gray25")
+
+            layer.after(22, lambda: _animate(step + 1))
+
+        _animate()
 
     def _set_theme_buttons_state(self, state: str) -> None:
         for button in self._theme_buttons:
