@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import platform
 import threading
 import time
@@ -20,10 +21,21 @@ class RecorderState(str, Enum):
     PAUSED = "paused"
 
 
+class CaptureMode(str, Enum):
+    MERGED_WITH_CAMERA = "merged_with_camera"
+    CAMERA_ONLY = "camera_only"
+
+
 def default_recordings_dir() -> Path:
     downloads_dir = Path.home() / "Downloads"
     base_dir = downloads_dir if downloads_dir.exists() else Path.home()
     return base_dir / "Time Lapse Creator"
+
+
+def settings_file_path() -> Path:
+    settings_dir = Path.home() / ".time-lapse-creator"
+    settings_dir.mkdir(parents=True, exist_ok=True)
+    return settings_dir / "settings.json"
 
 
 @dataclass(slots=True)
@@ -36,6 +48,7 @@ class AppConfig:
     webcam_margin: int = 24
     preview_size: int = 110
     recordings_dir: Path = field(default_factory=default_recordings_dir)
+    capture_mode: CaptureMode = CaptureMode.MERGED_WITH_CAMERA
 
     @property
     def capture_interval_seconds(self) -> float:
@@ -55,6 +68,35 @@ class SessionInfo:
     ended_at: datetime
     elapsed_seconds: float
     frame_count: int
+
+
+class SettingsStore:
+    def __init__(self, settings_path: Path | None = None) -> None:
+        self.settings_path = settings_path or settings_file_path()
+
+    def load(self) -> dict[str, str]:
+        if not self.settings_path.exists():
+            return {}
+
+        try:
+            with self.settings_path.open("r", encoding="utf-8") as settings_file:
+                data = json.load(settings_file)
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+        if not isinstance(data, dict):
+            return {}
+
+        settings: dict[str, str] = {}
+        for key, value in data.items():
+            if isinstance(value, str):
+                settings[key] = value
+        return settings
+
+    def save(self, settings: dict[str, str]) -> None:
+        self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.settings_path.open("w", encoding="utf-8") as settings_file:
+            json.dump(settings, settings_file, indent=2)
 
 
 class CameraFeed:
@@ -123,9 +165,11 @@ class CameraFeed:
 
 
 class TimeLapseRecorder:
-    def __init__(self, config: AppConfig, camera_feed: CameraFeed) -> None:
+    def __init__(self, config: AppConfig, camera_feed: CameraFeed, settings_store: SettingsStore | None = None) -> None:
         self.config = config
         self.camera_feed = camera_feed
+        self.settings_store = settings_store or SettingsStore()
+        self._load_settings()
         self.recordings_dir = self.config.recordings_dir
         self.recordings_dir.mkdir(parents=True, exist_ok=True)
 
@@ -141,6 +185,28 @@ class TimeLapseRecorder:
         self._accumulated_seconds = 0.0
         self._active_segment_started_monotonic: float | None = None
 
+    def _load_settings(self) -> None:
+        settings = self.settings_store.load()
+
+        saved_recordings_dir = settings.get("recordings_dir")
+        if saved_recordings_dir:
+            self.config.recordings_dir = Path(saved_recordings_dir).expanduser()
+
+        saved_capture_mode = settings.get("capture_mode")
+        if saved_capture_mode:
+            try:
+                self.config.capture_mode = CaptureMode(saved_capture_mode)
+            except ValueError:
+                self.config.capture_mode = CaptureMode.MERGED_WITH_CAMERA
+
+    def _save_settings(self) -> None:
+        self.settings_store.save(
+            {
+                "recordings_dir": str(self.config.recordings_dir),
+                "capture_mode": self.config.capture_mode.value,
+            }
+        )
+
     def get_recordings_dir(self) -> Path:
         with self._lock:
             return self.recordings_dir
@@ -153,7 +219,20 @@ class TimeLapseRecorder:
             target_dir.mkdir(parents=True, exist_ok=True)
             self.recordings_dir = target_dir
             self.config.recordings_dir = target_dir
+            self._save_settings()
             return target_dir
+
+    def get_capture_mode(self) -> CaptureMode:
+        with self._lock:
+            return self.config.capture_mode
+
+    def set_capture_mode(self, capture_mode: CaptureMode) -> CaptureMode:
+        with self._lock:
+            if self._state != RecorderState.IDLE:
+                raise RuntimeError("Capture mode can only be changed while recording is stopped.")
+            self.config.capture_mode = capture_mode
+            self._save_settings()
+            return self.config.capture_mode
 
     def get_state(self) -> RecorderState:
         with self._lock:
@@ -316,6 +395,9 @@ class TimeLapseRecorder:
                 next_capture_at = time.monotonic() + self.config.capture_interval_seconds
 
     def _build_frame(self, screen_capture: mss.mss) -> Image.Image:
+        if self.config.capture_mode == CaptureMode.CAMERA_ONLY:
+            return self._build_camera_only_frame()
+
         monitors = screen_capture.monitors[1:] or [screen_capture.monitors[0]]
         left = min(monitor["left"] for monitor in monitors)
         top = min(monitor["top"] for monitor in monitors)
@@ -337,6 +419,27 @@ class TimeLapseRecorder:
         if webcam_frame is not None:
             fitted = self._overlay_webcam(fitted, webcam_frame, self.config.webcam_diameter)
         return fitted
+
+    def _build_camera_only_frame(self) -> Image.Image:
+        webcam_frame = self.camera_feed.get_latest_frame()
+        if webcam_frame is None:
+            return self._build_placeholder_frame("Camera not available")
+
+        webcam_image = Image.fromarray(webcam_frame)
+        return self._fit_to_output(webcam_image)
+
+    def _build_placeholder_frame(self, message: str) -> Image.Image:
+        base_image = Image.new("RGB", self.config.output_size, (24, 24, 24))
+        draw = ImageDraw.Draw(base_image)
+        box_width = max(320, len(message) * 10)
+        box_height = 80
+        left = (base_image.width - box_width) // 2
+        top = (base_image.height - box_height) // 2
+        right = left + box_width
+        bottom = top + box_height
+        draw.rounded_rectangle((left, top, right, bottom), radius=18, fill=(40, 40, 40))
+        draw.text((left + 24, top + 28), message, fill=(230, 230, 230))
+        return base_image
 
     def _fit_to_output(self, image: Image.Image) -> Image.Image:
         target_width, target_height = self.config.output_size

@@ -12,6 +12,8 @@ Small cross-platform Python desktop app that records all connected displays as a
 - Displays the current recording duration and the estimated video length if you stopped immediately.
 - Saves sessions to your `Downloads/Time Lapse Creator/` folder by default.
 - Lets you change the save location from the app window before starting a recording.
+- Lets you switch between `Merged screens + camera` and `Camera only` capture modes.
+- Remembers the last-used save folder and capture mode between app launches.
 - Renders the captured screenshots into a video when you press `Stop`.
 
 ## Why the timing works
@@ -57,6 +59,7 @@ time-lapse-creator
 - Raw captures go to `.../frames/` inside the same session folder
 - Final video is saved as `timelapse.mp4` when supported, otherwise an `.avi` fallback is used
 - Use `Change Save Folder` in the app to pick a different location for both frames and videos
+- Use the capture mode selector in the app to switch between desktop+camera output and camera-only output
 
 ## Build desktop apps
 

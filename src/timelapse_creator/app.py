@@ -7,7 +7,14 @@ from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
-from timelapse_creator.recorder import AppConfig, CameraFeed, RecorderState, SessionInfo, TimeLapseRecorder
+from timelapse_creator.recorder import (
+    AppConfig,
+    CameraFeed,
+    CaptureMode,
+    RecorderState,
+    SessionInfo,
+    TimeLapseRecorder,
+)
 
 
 def format_duration(total_seconds: float) -> str:
@@ -49,6 +56,7 @@ class TimeLapseApp:
         self.projected_var = tk.StringVar(value="If stopped now: [00:00:00]")
         self.frames_var = tk.StringVar(value="Captured frames: 0")
         self.output_var = tk.StringVar(value=f"Save folder: {self.recorder.get_recordings_dir()}")
+        self.capture_mode_var = tk.StringVar()
 
         info_frame = ttk.Frame(main, padding=(0, 14, 0, 14))
         info_frame.grid(row=1, column=0, sticky="ew")
@@ -68,20 +76,29 @@ class TimeLapseApp:
         self.pause_button = ttk.Button(controls, text="Pause", command=self._pause)
         self.stop_button = ttk.Button(controls, text="Stop", command=self._stop)
         self.change_folder_button = ttk.Button(main, text="Change Save Folder", command=self._choose_output_folder)
+        self.capture_mode_box = ttk.Combobox(
+            main,
+            state="readonly",
+            textvariable=self.capture_mode_var,
+            values=("Merged screens + camera", "Camera only"),
+        )
+        self.capture_mode_box.bind("<<ComboboxSelected>>", self._change_capture_mode)
 
         self.start_button.grid(row=0, column=0, padx=(0, 8), sticky="ew")
         self.pause_button.grid(row=0, column=1, padx=4, sticky="ew")
         self.stop_button.grid(row=0, column=2, padx=(8, 0), sticky="ew")
         self.change_folder_button.grid(row=3, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(main, text="Capture mode").grid(row=4, column=0, sticky="w", pady=(10, 2))
+        self.capture_mode_box.grid(row=5, column=0, sticky="ew")
 
         preview_row = ttk.Frame(main)
-        preview_row.grid(row=4, column=0, sticky="nsew", pady=(18, 0))
+        preview_row.grid(row=6, column=0, sticky="nsew", pady=(18, 0))
         preview_row.columnconfigure(0, weight=1)
 
         helper = ttk.Label(
             preview_row,
             text=(
-                "Each capture merges all connected displays into one 1080p frame and overlays the latest webcam frame."
+                "Choose between desktop capture with camera overlay or camera-only recording. The last selection is saved."
             ),
             wraplength=295,
             justify=tk.LEFT,
@@ -90,6 +107,7 @@ class TimeLapseApp:
 
         self.preview_label = ttk.Label(preview_row)
         self.preview_label.grid(row=0, column=1, sticky="se", padx=(16, 0))
+        self._sync_capture_mode_ui()
 
     def _start_or_resume(self) -> None:
         if self.rendering:
@@ -140,6 +158,22 @@ class TimeLapseApp:
 
         self.output_var.set(f"Save folder: {target_dir}")
 
+    def _change_capture_mode(self, _event: object | None = None) -> None:
+        if self.rendering or self.recorder.get_state() != RecorderState.IDLE:
+            self._sync_capture_mode_ui()
+            messagebox.showinfo("Recording active", "Stop the current recording before changing the capture mode.")
+            return
+
+        try:
+            capture_mode = self._capture_mode_from_label(self.capture_mode_var.get())
+            self.recorder.set_capture_mode(capture_mode)
+        except RuntimeError as error:
+            self._sync_capture_mode_ui()
+            messagebox.showerror("Capture mode unchanged", str(error))
+            return
+
+        self._sync_capture_mode_ui()
+
     def _render_session(self, session: SessionInfo) -> None:
         try:
             rendered_session = self.recorder.render_video(session)
@@ -182,12 +216,14 @@ class TimeLapseApp:
         self.elapsed_var.set(f"Recording time: {format_duration(elapsed_seconds)}")
         self.projected_var.set(f"If stopped now: [{format_duration(projected_seconds)}]")
         self.frames_var.set(f"Captured frames: {frame_count}")
+        self._sync_capture_mode_ui()
 
         if self.rendering:
             self.start_button.state(["disabled"])
             self.pause_button.state(["disabled"])
             self.stop_button.state(["disabled"])
             self.change_folder_button.state(["disabled"])
+            self.capture_mode_box.state(["disabled"])
         elif state == RecorderState.IDLE:
             self.status_var.set("Ready")
             self.start_button.config(text="Start")
@@ -195,6 +231,7 @@ class TimeLapseApp:
             self.pause_button.state(["disabled"])
             self.stop_button.state(["disabled"])
             self.change_folder_button.state(["!disabled"])
+            self.capture_mode_box.state(["!disabled", "readonly"])
         elif state == RecorderState.RECORDING:
             self.status_var.set("Recording")
             self.start_button.config(text="Resume")
@@ -202,6 +239,7 @@ class TimeLapseApp:
             self.pause_button.state(["!disabled"])
             self.stop_button.state(["!disabled"])
             self.change_folder_button.state(["disabled"])
+            self.capture_mode_box.state(["disabled"])
         elif state == RecorderState.PAUSED:
             self.status_var.set("Paused")
             self.start_button.config(text="Resume")
@@ -209,6 +247,7 @@ class TimeLapseApp:
             self.pause_button.state(["disabled"])
             self.stop_button.state(["!disabled"])
             self.change_folder_button.state(["disabled"])
+            self.capture_mode_box.state(["disabled"])
 
         self._refresh_camera_preview()
         self.root.after(250, self._update_ui)
@@ -234,6 +273,19 @@ class TimeLapseApp:
 
         self._preview_image = ImageTk.PhotoImage(preview)
         self.preview_label.configure(image=self._preview_image)
+
+    def _sync_capture_mode_ui(self) -> None:
+        self.capture_mode_var.set(self._capture_mode_label(self.recorder.get_capture_mode()))
+
+    def _capture_mode_label(self, capture_mode: CaptureMode) -> str:
+        if capture_mode == CaptureMode.CAMERA_ONLY:
+            return "Camera only"
+        return "Merged screens + camera"
+
+    def _capture_mode_from_label(self, label: str) -> CaptureMode:
+        if label == "Camera only":
+            return CaptureMode.CAMERA_ONLY
+        return CaptureMode.MERGED_WITH_CAMERA
 
     def _on_close(self) -> None:
         self.closing = True
