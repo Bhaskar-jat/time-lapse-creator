@@ -7,6 +7,7 @@ from tkinter import colorchooser, filedialog, messagebox, ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
+from timelapse_creator import __version__
 from timelapse_creator.recorder import (
     AppConfig,
     CameraFeed,
@@ -80,7 +81,7 @@ def format_duration(total_seconds: float) -> str:
 class TimeLapseApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Time Lapse Creator")
+        self.root.title(f"Time Lapse Creator v{__version__}")
         self.root.geometry("860x760")
         self.root.minsize(780, 680)
 
@@ -419,10 +420,22 @@ class TimeLapseApp:
     def _configure_styles(self) -> None:
         style = ttk.Style()
         style.theme_use("clam")
-        self.root.option_add("*TCombobox*Listbox*Background", self.colors["surface_alt"])
-        self.root.option_add("*TCombobox*Listbox*Foreground", self.colors["text"])
-        self.root.option_add("*TCombobox*Listbox*selectBackground", self.colors["accent"])
-        self.root.option_add("*TCombobox*Listbox*selectForeground", self.colors["text"])
+        option_pairs = (
+            ("*TCombobox*Listbox*Background", self.colors["surface_alt"]),
+            ("*TCombobox*Listbox*Foreground", self.colors["text"]),
+            ("*TCombobox*Listbox*selectBackground", self.colors["accent"]),
+            ("*TCombobox*Listbox*selectForeground", self.colors["text"]),
+            ("*TCombobox*Listbox.background", self.colors["surface_alt"]),
+            ("*TCombobox*Listbox.foreground", self.colors["text"]),
+            ("*TCombobox*Listbox.selectBackground", self.colors["accent"]),
+            ("*TCombobox*Listbox.selectForeground", self.colors["text"]),
+            ("*Listbox.background", self.colors["surface_alt"]),
+            ("*Listbox.foreground", self.colors["text"]),
+            ("*Listbox.selectBackground", self.colors["accent"]),
+            ("*Listbox.selectForeground", self.colors["text"]),
+        )
+        for pattern, value in option_pairs:
+            self.root.option_add(pattern, value)
 
         accent_pressed = self._mix_color(self.colors["accent"], self.colors["bg"], 0.28)
         neutral_bg = self._mix_color(self.colors["surface_alt"], self.colors["text"], 0.08)
@@ -914,6 +927,10 @@ class TimeLapseApp:
         layer = self._get_glow_layer(parent)
         layer.delete("glow")
         parent.update_idletasks()
+        try:
+            layer.tk.call("lower", layer._w, button._w)
+        except tk.TclError:
+            layer.tk.call("lower", layer._w)
 
         left = button.winfo_x()
         top = button.winfo_y()
