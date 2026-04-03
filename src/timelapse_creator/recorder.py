@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import platform
+import shutil
 import threading
 import time
 from dataclasses import dataclass, field
@@ -308,14 +309,19 @@ class TimeLapseRecorder:
             raise RuntimeError("No frames were captured, so no video could be created.")
 
         video_path, writer = self._create_video_writer(session.video_path)
+        render_succeeded = False
         try:
             for frame_path in frame_paths:
                 frame = cv2.imread(str(frame_path))
                 if frame is None:
                     continue
                 writer.write(frame)
+            render_succeeded = True
         finally:
             writer.release()
+
+        if render_succeeded:
+            self._delete_session_frames(session.frames_dir)
 
         return SessionInfo(
             session_dir=session.session_dir,
@@ -326,6 +332,11 @@ class TimeLapseRecorder:
             elapsed_seconds=session.elapsed_seconds,
             frame_count=len(frame_paths),
         )
+
+    def _delete_session_frames(self, frames_dir: Path) -> None:
+        if not frames_dir.exists():
+            return
+        shutil.rmtree(frames_dir, ignore_errors=True)
 
     def _start_new_session_locked(self) -> None:
         timestamp = datetime.now()
