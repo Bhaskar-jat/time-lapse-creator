@@ -94,6 +94,11 @@ class TimeLapseApp:
         self.config = AppConfig(preview_size=168)
         self.camera_feed = CameraFeed()
         self.recorder = TimeLapseRecorder(self.config, self.camera_feed, self.settings_store)
+        if self.recorder.get_state() == RecorderState.IDLE and self.recorder.get_timer_overlay_use_theme():
+            try:
+                self.recorder.set_timer_overlay_color(self.colors["accent"])
+            except RuntimeError:
+                pass
         self.camera_feed.start()
 
         self.closing = False
@@ -125,6 +130,9 @@ class TimeLapseApp:
         self.output_var = tk.StringVar(value=f"Save folder: {self.recorder.get_recordings_dir()}")
         self.capture_mode_var = tk.StringVar()
         self.theme_name_var = tk.StringVar(value=self.theme_name)
+        self.timer_overlay_enabled_var = tk.BooleanVar(value=self.recorder.get_timer_overlay_enabled())
+        self.timer_overlay_use_theme_var = tk.BooleanVar(value=self.recorder.get_timer_overlay_use_theme())
+        self.timer_overlay_size_var = tk.StringVar(value=str(self.recorder.get_timer_overlay_font_size()))
 
         self.container_frame = tk.Frame(self.root, bg=self.colors["bg"])
         self.container_frame.pack(fill=tk.BOTH, expand=True)
@@ -379,6 +387,64 @@ class TimeLapseApp:
         self.custom_gradient_button.grid(row=0, column=2, padx=(8, 0))
         self._custom_color_buttons = [self.custom_bg_button, self.custom_primary_button, self.custom_gradient_button]
 
+        tk.Label(
+            settings_card,
+            text="Recording timer overlay",
+            bg=self.colors["surface"],
+            fg=self.colors["muted"],
+            font=("SF Pro Text", 10, "bold"),
+        ).grid(row=15, column=0, sticky="w", pady=(22, 6))
+
+        self.timer_overlay_enabled_check = ttk.Checkbutton(
+            settings_card,
+            text="Show recording time on video",
+            variable=self.timer_overlay_enabled_var,
+            command=self._toggle_timer_overlay_enabled,
+            style="Dark.TCheckbutton",
+        )
+        self.timer_overlay_enabled_check.grid(row=16, column=0, sticky="w")
+
+        self.timer_overlay_theme_check = ttk.Checkbutton(
+            settings_card,
+            text="Use theme accent color",
+            variable=self.timer_overlay_use_theme_var,
+            command=self._toggle_timer_overlay_use_theme,
+            style="Dark.TCheckbutton",
+        )
+        self.timer_overlay_theme_check.grid(row=17, column=0, sticky="w", pady=(6, 0))
+
+        timer_row = tk.Frame(settings_card, bg=self.colors["surface"])
+        timer_row.grid(row=18, column=0, sticky="w", pady=(10, 0))
+
+        self.timer_color_button = ttk.Button(
+            timer_row,
+            text="Timer Color",
+            command=lambda: self._animate_button_press(
+                self.timer_color_button, "Secondary", self._choose_timer_overlay_color
+            ),
+            style="Secondary.TButton",
+        )
+        self.timer_color_button.grid(row=0, column=0, padx=(0, 10))
+
+        tk.Label(
+            timer_row,
+            text="Size",
+            bg=self.colors["surface"],
+            fg=self.colors["muted"],
+            font=("SF Pro Text", 10, "bold"),
+        ).grid(row=0, column=1, padx=(0, 8))
+
+        self.timer_size_box = ttk.Combobox(
+            timer_row,
+            state="readonly",
+            textvariable=self.timer_overlay_size_var,
+            values=("280", "320", "360", "420", "480", "560", "640", "720", "840", "960", "1200"),
+            width=6,
+            style="Dark.TCombobox",
+        )
+        self.timer_size_box.grid(row=0, column=2, sticky="w")
+        self.timer_size_box.bind("<<ComboboxSelected>>", self._change_timer_overlay_size)
+
         preview_card = self._create_card(self.main_frame)
         preview_card.grid(row=3, column=1, sticky="nsew", padx=(10, 0))
         preview_card.grid_columnconfigure(0, weight=1)
@@ -414,6 +480,7 @@ class TimeLapseApp:
         ).grid(row=3, column=0, sticky="w", pady=(12, 0))
 
         self._sync_capture_mode_ui()
+        self._sync_timer_overlay_ui()
         self._sync_theme_ui()
         self._draw_header_gradient()
 
@@ -478,6 +545,18 @@ class TimeLapseApp:
             foreground=[("disabled", self.colors["muted"])],
             selectbackground=[("readonly", self.colors["surface_alt"])],
             selectforeground=[("readonly", self.colors["text"])],
+        )
+
+        style.configure(
+            "Dark.TCheckbutton",
+            background=self.colors["surface"],
+            foreground=self.colors["text"],
+            font=("SF Pro Text", 10, "bold"),
+        )
+        style.map(
+            "Dark.TCheckbutton",
+            background=[("disabled", self.colors["surface"])],
+            foreground=[("disabled", self.colors["muted"])],
         )
 
     def _configure_button_style(
@@ -769,6 +848,7 @@ class TimeLapseApp:
         self.projected_var.set(f"If stopped now: [{format_duration(projected_seconds)}]")
         self.frames_var.set(f"Captured frames: {frame_count}")
         self._sync_capture_mode_ui()
+        self._sync_timer_overlay_ui()
         self._sync_theme_ui()
 
         if self.rendering:
@@ -778,6 +858,10 @@ class TimeLapseApp:
             self.change_folder_button.state(["disabled"])
             self.capture_mode_box.state(["disabled"])
             self.theme_box.state(["disabled"])
+            self.timer_overlay_enabled_check.state(["disabled"])
+            self.timer_overlay_theme_check.state(["disabled"])
+            self.timer_color_button.state(["disabled"])
+            self.timer_size_box.state(["disabled"])
             self._set_theme_buttons_state(tk.DISABLED)
             self._set_custom_color_buttons_state(["disabled"])
         elif state == RecorderState.IDLE:
@@ -789,6 +873,8 @@ class TimeLapseApp:
             self.change_folder_button.state(["!disabled"])
             self.capture_mode_box.state(["!disabled", "readonly"])
             self.theme_box.state(["!disabled", "readonly"])
+            self.timer_overlay_enabled_check.state(["!disabled"])
+            self.timer_overlay_theme_check.state(["!disabled"])
             self._set_theme_buttons_state(tk.NORMAL)
             self._set_custom_color_buttons_state(["!disabled"])
         elif state == RecorderState.RECORDING:
@@ -800,6 +886,10 @@ class TimeLapseApp:
             self.change_folder_button.state(["disabled"])
             self.capture_mode_box.state(["disabled"])
             self.theme_box.state(["disabled"])
+            self.timer_overlay_enabled_check.state(["disabled"])
+            self.timer_overlay_theme_check.state(["disabled"])
+            self.timer_color_button.state(["disabled"])
+            self.timer_size_box.state(["disabled"])
             self._set_theme_buttons_state(tk.DISABLED)
             self._set_custom_color_buttons_state(["disabled"])
         elif state == RecorderState.PAUSED:
@@ -811,6 +901,10 @@ class TimeLapseApp:
             self.change_folder_button.state(["disabled"])
             self.capture_mode_box.state(["disabled"])
             self.theme_box.state(["disabled"])
+            self.timer_overlay_enabled_check.state(["disabled"])
+            self.timer_overlay_theme_check.state(["disabled"])
+            self.timer_color_button.state(["disabled"])
+            self.timer_size_box.state(["disabled"])
             self._set_theme_buttons_state(tk.DISABLED)
             self._set_custom_color_buttons_state(["disabled"])
 
@@ -857,6 +951,95 @@ class TimeLapseApp:
     def _sync_theme_ui(self) -> None:
         self.theme_name_var.set(self.theme_name)
         self._render_theme_previews()
+
+    def _sync_timer_overlay_ui(self) -> None:
+        self.timer_overlay_enabled_var.set(self.recorder.get_timer_overlay_enabled())
+        self.timer_overlay_use_theme_var.set(self.recorder.get_timer_overlay_use_theme())
+        self.timer_overlay_size_var.set(str(self.recorder.get_timer_overlay_font_size()))
+
+        color = self.recorder.get_timer_overlay_color()
+        if hasattr(self, "timer_color_button") and self.timer_color_button.winfo_exists():
+            self.timer_color_button.config(text=f"Timer Color ({color})")
+
+        use_theme = self.timer_overlay_use_theme_var.get()
+        if hasattr(self, "timer_color_button") and self.timer_color_button.winfo_exists():
+            if use_theme:
+                self.timer_color_button.state(["disabled"])
+            else:
+                self.timer_color_button.state(["!disabled"])
+
+        enabled = self.timer_overlay_enabled_var.get()
+        if hasattr(self, "timer_size_box") and self.timer_size_box.winfo_exists():
+            if enabled:
+                self.timer_size_box.state(["!disabled", "readonly"])
+            else:
+                self.timer_size_box.state(["disabled"])
+
+    def _toggle_timer_overlay_enabled(self) -> None:
+        if self.rendering:
+            self._sync_timer_overlay_ui()
+            return
+        try:
+            self.recorder.set_timer_overlay_enabled(self.timer_overlay_enabled_var.get())
+        except RuntimeError as error:
+            self._sync_timer_overlay_ui()
+            messagebox.showerror("Timer overlay unchanged", str(error))
+            return
+        self._sync_timer_overlay_ui()
+
+    def _toggle_timer_overlay_use_theme(self) -> None:
+        if self.rendering:
+            self._sync_timer_overlay_ui()
+            return
+        use_theme = self.timer_overlay_use_theme_var.get()
+        try:
+            self.recorder.set_timer_overlay_use_theme(use_theme)
+            if use_theme and self.recorder.get_state() == RecorderState.IDLE:
+                self.recorder.set_timer_overlay_color(self.colors["accent"])
+        except RuntimeError as error:
+            self._sync_timer_overlay_ui()
+            messagebox.showerror("Timer overlay unchanged", str(error))
+            return
+        self._sync_timer_overlay_ui()
+
+    def _choose_timer_overlay_color(self) -> None:
+        if self.rendering or self.recorder.get_state() != RecorderState.IDLE:
+            messagebox.showinfo("Recording active", "Stop the current recording before changing the timer overlay.")
+            return
+
+        initial_color = self.recorder.get_timer_overlay_color()
+        _, selected_hex = colorchooser.askcolor(parent=self.root, title="Choose timer overlay color", initialcolor=initial_color)
+        if not selected_hex:
+            return
+
+        try:
+            self.recorder.set_timer_overlay_use_theme(False)
+            self.timer_overlay_use_theme_var.set(False)
+            self.recorder.set_timer_overlay_color(selected_hex)
+        except RuntimeError as error:
+            messagebox.showerror("Timer overlay unchanged", str(error))
+        self._sync_timer_overlay_ui()
+
+    def _change_timer_overlay_size(self, _event: object | None = None) -> None:
+        if self.rendering or self.recorder.get_state() != RecorderState.IDLE:
+            self._sync_timer_overlay_ui()
+            messagebox.showinfo("Recording active", "Stop the current recording before changing the timer overlay.")
+            return
+
+        try:
+            size = int(self.timer_overlay_size_var.get())
+        except ValueError:
+            self._sync_timer_overlay_ui()
+            return
+
+        try:
+            self.recorder.set_timer_overlay_font_size(size)
+        except RuntimeError as error:
+            self._sync_timer_overlay_ui()
+            messagebox.showerror("Timer overlay unchanged", str(error))
+            return
+
+        self._sync_timer_overlay_ui()
 
     def _capture_mode_label(self, capture_mode: CaptureMode) -> str:
         if capture_mode == CaptureMode.CAMERA_ONLY:
@@ -927,10 +1110,10 @@ class TimeLapseApp:
         layer = self._get_glow_layer(parent)
         layer.delete("glow")
         parent.update_idletasks()
-        try:
-            layer.tk.call("lower", layer._w, button._w)
-        except tk.TclError:
-            layer.tk.call("lower", layer._w)
+        # Always keep the glow layer behind *all* widgets in the parent frame.
+        # Lowering only under the pressed button can accidentally put the layer
+        # above sibling buttons (e.g. Start/Resume), making them non-clickable.
+        layer.tk.call("lower", layer._w)
 
         left = button.winfo_x()
         top = button.winfo_y()
@@ -1044,6 +1227,11 @@ class TimeLapseApp:
 
     def _apply_theme(self, rebuild: bool = False) -> None:
         self.colors = self._resolve_theme_colors(self.theme_name, self.theme_overrides)
+        if self.recorder.get_state() == RecorderState.IDLE and self.recorder.get_timer_overlay_use_theme():
+            try:
+                self.recorder.set_timer_overlay_color(self.colors["accent"])
+            except RuntimeError:
+                pass
         if rebuild:
             self._rebuild_ui()
 

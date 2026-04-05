@@ -60,6 +60,7 @@ time-lapse-creator
 - Recordings are written under `~/Downloads/Time Lapse Creator/session-YYYYMMDD-HHMMSS/` by default
 - Raw captures go to `.../frames/` inside the same session folder
 - Final video is saved as `timelapse.mp4` when supported, otherwise an `.avi` fallback is used
+- A `thumbnail.jpg` is saved next to the video and includes the total real recording time
 - Use `Change Save Folder` in the app to pick a different location for both frames and videos
 - Use the capture mode selector in the app to switch between desktop+camera output and camera-only output
 
