@@ -17,58 +17,14 @@ from timelapse_creator.recorder import (
     SettingsStore,
     TimeLapseRecorder,
 )
-
-
-DEFAULT_THEME_NAME = "Pink Silk"
-THEME_PRESETS: dict[str, dict[str, str]] = {
-    "Pink Silk": {
-        "bg": "#120612",
-        "accent": "#ec4899",
-        "accent_2": "#fb7185",
-        "success": "#34d399",
-        "warning": "#f59e0b",
-        "danger": "#fb7185",
-    },
-    "Aurora Violet": {
-        "bg": "#070b16",
-        "accent": "#8b5cf6",
-        "accent_2": "#06b6d4",
-        "success": "#22c55e",
-        "warning": "#f59e0b",
-        "danger": "#f97316",
-    },
-    "Ocean Glass": {
-        "bg": "#06121c",
-        "accent": "#38bdf8",
-        "accent_2": "#14b8a6",
-        "success": "#10b981",
-        "warning": "#f59e0b",
-        "danger": "#fb7185",
-    },
-    "Emerald Night": {
-        "bg": "#07140d",
-        "accent": "#10b981",
-        "accent_2": "#22c55e",
-        "success": "#4ade80",
-        "warning": "#f59e0b",
-        "danger": "#f97316",
-    },
-    "Solar Amber": {
-        "bg": "#160b05",
-        "accent": "#f59e0b",
-        "accent_2": "#f97316",
-        "success": "#22c55e",
-        "warning": "#fbbf24",
-        "danger": "#ef4444",
-    },
-}
-ACCENT_SWATCHES: list[tuple[str, str]] = [
-    ("#ec4899", "#fb7185"),
-    ("#8b5cf6", "#06b6d4"),
-    ("#38bdf8", "#14b8a6"),
-    ("#10b981", "#22c55e"),
-    ("#f59e0b", "#f97316"),
-]
+from timelapse_creator.theme import (
+    ACCENT_SWATCHES,
+    DEFAULT_THEME_NAME,
+    THEME_PRESETS,
+    is_valid_hex_color,
+    mix_color,
+    resolve_theme_colors,
+)
 
 
 def format_duration(total_seconds: float) -> str:
@@ -89,7 +45,7 @@ class TimeLapseApp:
         self.theme_name = DEFAULT_THEME_NAME
         self.theme_overrides: dict[str, str] = {}
         self._load_theme_preferences()
-        self.colors = self._resolve_theme_colors(self.theme_name, self.theme_overrides)
+        self.colors = resolve_theme_colors(self.theme_name, self.theme_overrides)
 
         self.config = AppConfig(preview_size=168)
         self.camera_feed = CameraFeed()
@@ -132,7 +88,7 @@ class TimeLapseApp:
         self.theme_name_var = tk.StringVar(value=self.theme_name)
         self.timer_overlay_enabled_var = tk.BooleanVar(value=self.recorder.get_timer_overlay_enabled())
         self.timer_overlay_use_theme_var = tk.BooleanVar(value=self.recorder.get_timer_overlay_use_theme())
-        self.timer_overlay_size_var = tk.StringVar(value=str(self.recorder.get_timer_overlay_font_size()))
+        self.timer_overlay_size_var = tk.StringVar(value=str(self.recorder.get_timer_overlay_size_px()))
 
         self.container_frame = tk.Frame(self.root, bg=self.colors["bg"])
         self.container_frame.pack(fill=tk.BOTH, expand=True)
@@ -428,7 +384,7 @@ class TimeLapseApp:
 
         tk.Label(
             timer_row,
-            text="Size",
+            text="Width (px)",
             bg=self.colors["surface"],
             fg=self.colors["muted"],
             font=("SF Pro Text", 10, "bold"),
@@ -504,12 +460,12 @@ class TimeLapseApp:
         for pattern, value in option_pairs:
             self.root.option_add(pattern, value)
 
-        accent_pressed = self._mix_color(self.colors["accent"], self.colors["bg"], 0.28)
-        neutral_bg = self._mix_color(self.colors["surface_alt"], self.colors["text"], 0.08)
-        neutral_pressed = self._mix_color(neutral_bg, self.colors["bg"], 0.22)
-        danger_pressed = self._mix_color(self.colors["danger"], self.colors["bg"], 0.25)
+        accent_pressed = mix_color(self.colors["accent"], self.colors["bg"], 0.28)
+        neutral_bg = mix_color(self.colors["surface_alt"], self.colors["text"], 0.08)
+        neutral_pressed = mix_color(neutral_bg, self.colors["bg"], 0.22)
+        danger_pressed = mix_color(self.colors["danger"], self.colors["bg"], 0.25)
         secondary_bg = self.colors["surface_alt"]
-        secondary_pressed = self._mix_color(secondary_bg, self.colors["text"], 0.1)
+        secondary_pressed = mix_color(secondary_bg, self.colors["text"], 0.1)
 
         self._configure_button_style("Accent.TButton", self.colors["accent"], self.colors["text"], (16, 12))
         self._configure_button_style("AccentPressed.TButton", accent_pressed, self.colors["text"], (15, 11))
@@ -581,7 +537,7 @@ class TimeLapseApp:
         )
         style.map(
             style_name,
-            background=[("disabled", self._mix_color(background, self.colors["bg"], 0.35))],
+            background=[("disabled", mix_color(background, self.colors["bg"], 0.35))],
             foreground=[("disabled", self.colors["muted"])],
         )
 
@@ -635,11 +591,11 @@ class TimeLapseApp:
 
         for offset in range(height):
             mix = offset / max(height - 1, 1)
-            canvas.create_line(0, offset, width, offset, fill=self._mix_color(self.colors["accent"], self.colors["bg"], mix))
+            canvas.create_line(0, offset, width, offset, fill=mix_color(self.colors["accent"], self.colors["bg"], mix))
 
         for offset in range(width):
             mix = offset / max(width - 1, 1)
-            color = self._mix_color(self.colors["accent"], self.colors["accent_2"], mix)
+            color = mix_color(self.colors["accent"], self.colors["accent_2"], mix)
             canvas.create_line(offset, 0, offset, height, fill=color, stipple="gray50")
 
         canvas.create_oval(width - 200, -48, width + 20, 160, fill=self.colors["accent_2"], outline="", stipple="gray25")
@@ -659,7 +615,7 @@ class TimeLapseApp:
             anchor="nw",
             width=max(width - 240, 240),
             text="Pink-first premium timelapse recorder with saved modes, saved colors, and a cleaner desktop workflow.",
-            fill=self._mix_color(self.colors["text"], self.colors["bg"], 0.18),
+            fill=mix_color(self.colors["text"], self.colors["bg"], 0.18),
             font=("SF Pro Text", 11),
         )
 
@@ -689,7 +645,7 @@ class TimeLapseApp:
             108,
             anchor="ne",
             text=self.capture_mode_var.get() or "Merged screens + camera",
-            fill=self._mix_color(self.colors["text"], self.colors["bg"], 0.2),
+            fill=mix_color(self.colors["text"], self.colors["bg"], 0.2),
             font=("SF Pro Text", 10),
         )
 
@@ -955,7 +911,7 @@ class TimeLapseApp:
     def _sync_timer_overlay_ui(self) -> None:
         self.timer_overlay_enabled_var.set(self.recorder.get_timer_overlay_enabled())
         self.timer_overlay_use_theme_var.set(self.recorder.get_timer_overlay_use_theme())
-        self.timer_overlay_size_var.set(str(self.recorder.get_timer_overlay_font_size()))
+        self.timer_overlay_size_var.set(str(self.recorder.get_timer_overlay_size_px()))
 
         color = self.recorder.get_timer_overlay_color()
         if hasattr(self, "timer_color_button") and self.timer_color_button.winfo_exists():
@@ -1033,7 +989,7 @@ class TimeLapseApp:
             return
 
         try:
-            self.recorder.set_timer_overlay_font_size(size)
+            self.recorder.set_timer_overlay_size_px(size)
         except RuntimeError as error:
             self._sync_timer_overlay_ui()
             messagebox.showerror("Timer overlay unchanged", str(error))
@@ -1082,7 +1038,7 @@ class TimeLapseApp:
         if style_prefix == "Danger":
             return self.colors["danger"]
         if style_prefix == "Neutral":
-            return self._mix_color(self.colors["accent_2"], self.colors["text"], 0.45)
+            return mix_color(self.colors["accent_2"], self.colors["text"], 0.45)
         return self.colors["accent"]
 
     def _get_glow_layer(self, parent: tk.Widget) -> tk.Canvas:
@@ -1126,7 +1082,7 @@ class TimeLapseApp:
             0,
             0,
             0,
-            fill=self._mix_color(color, "#ffffff", 0.14),
+            fill=mix_color(color, "#ffffff", 0.14),
             outline="",
             stipple="gray50",
             tags="glow",
@@ -1209,7 +1165,7 @@ class TimeLapseApp:
         overrides: dict[str, str] = {}
         for key in ("bg", "accent", "accent_2"):
             value = settings.get(f"theme_{key}", "")
-            if self._is_valid_hex_color(value):
+            if is_valid_hex_color(value):
                 overrides[key] = value
 
         self.theme_name = theme_name
@@ -1226,7 +1182,7 @@ class TimeLapseApp:
         )
 
     def _apply_theme(self, rebuild: bool = False) -> None:
-        self.colors = self._resolve_theme_colors(self.theme_name, self.theme_overrides)
+        self.colors = resolve_theme_colors(self.theme_name, self.theme_overrides)
         if self.recorder.get_state() == RecorderState.IDLE and self.recorder.get_timer_overlay_use_theme():
             try:
                 self.recorder.set_timer_overlay_color(self.colors["accent"])
@@ -1284,53 +1240,6 @@ class TimeLapseApp:
             return
         scroll_units = -1 if event.num == 4 else 1
         self.scroll_canvas.yview_scroll(scroll_units, "units")
-
-    def _resolve_theme_colors(self, theme_name: str, overrides: dict[str, str]) -> dict[str, str]:
-        base = THEME_PRESETS.get(theme_name, THEME_PRESETS[DEFAULT_THEME_NAME]).copy()
-        bg = overrides.get("bg", base["bg"])
-        accent = overrides.get("accent", base["accent"])
-        accent_2 = overrides.get("accent_2", base["accent_2"])
-
-        dark_background = self._is_dark_color(bg)
-        text = "#f8fafc" if dark_background else "#0f172a"
-        surface = self._mix_color(bg, text, 0.08)
-        surface_alt = self._mix_color(bg, text, 0.05)
-        border = self._mix_color(bg, text, 0.18)
-        muted = self._mix_color(text, bg, 0.46)
-
-        return {
-            "bg": bg,
-            "surface": surface,
-            "surface_alt": surface_alt,
-            "border": border,
-            "text": text,
-            "muted": muted,
-            "accent": accent,
-            "accent_2": accent_2,
-            "success": base["success"],
-            "warning": base["warning"],
-            "danger": base["danger"],
-        }
-
-    def _is_dark_color(self, color_hex: str) -> bool:
-        red, green, blue = (int(color_hex[index : index + 2], 16) for index in (1, 3, 5))
-        luminance = (0.299 * red) + (0.587 * green) + (0.114 * blue)
-        return luminance < 160
-
-    def _is_valid_hex_color(self, value: str) -> bool:
-        if len(value) != 7 or not value.startswith("#"):
-            return False
-        try:
-            int(value[1:], 16)
-        except ValueError:
-            return False
-        return True
-
-    def _mix_color(self, start_hex: str, end_hex: str, fraction: float) -> str:
-        start = tuple(int(start_hex[index : index + 2], 16) for index in (1, 3, 5))
-        end = tuple(int(end_hex[index : index + 2], 16) for index in (1, 3, 5))
-        blended = tuple(int(start[channel] + (end[channel] - start[channel]) * fraction) for channel in range(3))
-        return f"#{blended[0]:02x}{blended[1]:02x}{blended[2]:02x}"
 
     def _status_color(self) -> str:
         if self.rendering:
