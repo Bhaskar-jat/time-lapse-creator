@@ -49,7 +49,7 @@ jobs:
           PY
           )"
 
-          base_ver="$(printf "%s\n%s\n" "${tag_ver}" "${file_ver}" | grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+$' | sort -V | tail -n 1)"
+          base_ver="$(printf "%s\n%s\n" "${tag_ver}" "${file_ver}" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
           if [[ -z "${base_ver}" ]]; then
             echo "Could not determine a base semver (tag='${latest_tag}', file='${file_ver}')." >&2
             exit 1
