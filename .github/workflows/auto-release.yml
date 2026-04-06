@@ -80,8 +80,8 @@ jobs:
 
           version = "${{ steps.version.outputs.version }}"
           replacements = [
-              (pathlib.Path("pyproject.toml"), r'(?m)^version = "([^"]+)"\\s*$', f'version = "{version}"'),
-              (pathlib.Path("src/timelapse_creator/__init__.py"), r'(?m)^__version__ = "([^"]+)"\\s*$', f'__version__ = "{version}"'),
+              (pathlib.Path("pyproject.toml"), r'(?m)^version\\s*=\\s*"([^"]+)"\\s*$', f'version = "{version}"'),
+              (pathlib.Path("src/timelapse_creator/__init__.py"), r'(?m)^__version__\\s*=\\s*"([^"]+)"\\s*$', f'__version__ = "{version}"'),
           ]
 
           for path, pattern, replacement in replacements:
