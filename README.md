@@ -1,19 +1,20 @@
 # Time Lapse Creator
 
-Small cross-platform Python desktop app that records all connected displays as a single 1080p timelapse, with a circular webcam overlay in the bottom-right corner.
+Small cross-platform Python desktop app that records all connected displays as a timelapse with a circular webcam overlay in the bottom-right corner.
 
 ## What it does
 
 - Shows a compact desktop window with `Start`, `Pause`, and `Stop` controls.
 - Captures every connected display and arranges them in one frame using the monitors' real screen layout.
-- Scales the merged desktop into a single 1920×1080 output frame.
+- Scales the merged desktop into a single output frame (default `480p`, adjustable up to `1080p` in the app).
 - Overlays the latest webcam frame as a circular picture-in-picture in the lower-right corner.
 - Records at a default cadence that turns **1 hour of real time into 1 minute of video**.
 - Displays the current recording duration and the estimated video length if you stopped immediately.
 - Saves sessions to your `Downloads/Time Lapse Creator/` folder by default.
 - Lets you change the save location from the app window before starting a recording.
 - Lets you switch between `Merged screens + camera` and `Camera only` capture modes.
-- Remembers the last-used save folder and capture mode between app launches.
+- Lets you choose output resolution in the app (`480p`, `720p`, or `1080p`).
+- Remembers the last-used save folder, capture mode, and output resolution between app launches.
 - Opens with a pink gradient theme by default.
 - Includes multiple built-in themes, quick accent presets, and custom color pickers for the background and buttons.
 - Renders the captured screenshots into a video when you press `Stop`.

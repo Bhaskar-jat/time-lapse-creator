@@ -12,6 +12,7 @@ from timelapse_creator.recorder import (
     AppConfig,
     CameraFeed,
     CaptureMode,
+    OUTPUT_RESOLUTION_PRESETS,
     RecorderState,
     SessionInfo,
     SettingsStore,
@@ -66,9 +67,12 @@ class TimeLapseApp:
         self.main_frame: tk.Frame | None = None
         self._preview_image: ImageTk.PhotoImage | None = None
         self._theme_buttons: list[tk.Button] = []
+        self._theme_swatch_images: list[ImageTk.PhotoImage] = []
         self._preset_preview_canvases: list[tk.Canvas] = []
         self._custom_color_buttons: list[ttk.Button] = []
         self._glow_layers: dict[str, tk.Canvas] = {}
+        self._button_style_images: dict[str, tuple[ImageTk.PhotoImage, ImageTk.PhotoImage]] = {}
+        self._button_style_generation = 0
 
         self._build_ui()
         self._update_ui()
@@ -85,6 +89,7 @@ class TimeLapseApp:
         self.frames_var = tk.StringVar(value="Captured frames: 0")
         self.output_var = tk.StringVar(value=f"Save folder: {self.recorder.get_recordings_dir()}")
         self.capture_mode_var = tk.StringVar()
+        self.output_resolution_var = tk.StringVar(value=self.recorder.get_output_resolution())
         self.theme_name_var = tk.StringVar(value=self.theme_name)
         self.timer_overlay_enabled_var = tk.BooleanVar(value=self.recorder.get_timer_overlay_enabled())
         self.timer_overlay_use_theme_var = tk.BooleanVar(value=self.recorder.get_timer_overlay_use_theme())
@@ -186,7 +191,7 @@ class TimeLapseApp:
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             settings_card,
-            text="Save location, capture mode, theme presets, and custom colors are all available here.",
+            text="Save location, capture mode, output resolution, theme presets, and custom colors are all available here.",
             bg=self.colors["surface"],
             fg=self.colors["muted"],
             font=("SF Pro Text", 10),
@@ -235,6 +240,23 @@ class TimeLapseApp:
         )
         self.capture_mode_box.grid(row=6, column=0, sticky="ew")
         self.capture_mode_box.bind("<<ComboboxSelected>>", self._change_capture_mode)
+
+        tk.Label(
+            settings_card,
+            text="Output resolution",
+            bg=self.colors["surface"],
+            fg=self.colors["muted"],
+            font=("SF Pro Text", 10, "bold"),
+        ).grid(row=19, column=0, sticky="w", pady=(18, 6))
+        self.output_resolution_box = ttk.Combobox(
+            settings_card,
+            state="readonly",
+            textvariable=self.output_resolution_var,
+            values=tuple(OUTPUT_RESOLUTION_PRESETS.keys()),
+            style="Dark.TCombobox",
+        )
+        self.output_resolution_box.grid(row=20, column=0, sticky="ew")
+        self.output_resolution_box.bind("<<ComboboxSelected>>", self._change_output_resolution)
 
         tk.Label(
             settings_card,
@@ -289,21 +311,27 @@ class TimeLapseApp:
         swatch_row = tk.Frame(settings_card, bg=self.colors["surface"])
         swatch_row.grid(row=12, column=0, sticky="w")
         self._theme_buttons = []
+        self._theme_swatch_images = []
         for index, (primary, secondary) in enumerate(ACCENT_SWATCHES):
+            swatch_image = self._create_swatch_image(primary, secondary)
             swatch_button = tk.Button(
                 swatch_row,
-                width=3,
-                height=1,
-                bg=primary,
-                activebackground=secondary,
+                image=swatch_image,
+                bg=self.colors["surface"],
+                activebackground=self.colors["surface"],
                 bd=0,
                 relief=tk.FLAT,
-                highlightthickness=1,
-                highlightbackground=self.colors["border"],
+                highlightthickness=0,
+                padx=0,
+                pady=0,
+                width=28,
+                height=28,
+                cursor="hand2",
                 command=lambda accent=primary, accent_2=secondary: self._apply_accent_pair(accent, accent_2),
             )
             swatch_button.grid(row=0, column=index, padx=(0, 8))
             self._theme_buttons.append(swatch_button)
+            self._theme_swatch_images.append(swatch_image)
 
         tk.Label(
             settings_card,
@@ -436,6 +464,7 @@ class TimeLapseApp:
         ).grid(row=3, column=0, sticky="w", pady=(12, 0))
 
         self._sync_capture_mode_ui()
+        self._sync_output_resolution_ui()
         self._sync_timer_overlay_ui()
         self._sync_theme_ui()
         self._draw_header_gradient()
@@ -443,6 +472,8 @@ class TimeLapseApp:
     def _configure_styles(self) -> None:
         style = ttk.Style()
         style.theme_use("clam")
+        self._button_style_images = {}
+        self._button_style_generation += 1
         option_pairs = (
             ("*TCombobox*Listbox*Background", self.colors["surface_alt"]),
             ("*TCombobox*Listbox*Foreground", self.colors["text"]),
@@ -524,22 +555,75 @@ class TimeLapseApp:
         borderwidth: int = 0,
     ) -> None:
         style = ttk.Style()
+        normal_image = self._create_button_style_image(background, borderwidth=borderwidth)
+        disabled_image = self._create_button_style_image(
+            mix_color(background, self.colors["bg"], 0.35),
+            borderwidth=borderwidth,
+        )
+        self._button_style_images[style_name] = (normal_image, disabled_image)
+
+        element_name = f"{style_name.replace('.', '_')}_{self._button_style_generation}"
+        style.element_create(
+            element_name,
+            "image",
+            normal_image,
+            ("disabled", disabled_image),
+            border=14,
+            sticky="nsew",
+        )
+        style.layout(
+            style_name,
+            [
+                (
+                    element_name,
+                    {
+                        "sticky": "nsew",
+                        "children": [
+                            (
+                                "Button.padding",
+                                {
+                                    "sticky": "nsew",
+                                    "children": [("Button.label", {"sticky": "nsew"})],
+                                },
+                            )
+                        ],
+                    },
+                )
+            ],
+        )
         style.configure(
             style_name,
             font=("SF Pro Text", 10, "bold"),
             foreground=foreground,
-            background=background,
-            bordercolor=self.colors["border"],
-            lightcolor=self.colors["border"],
-            darkcolor=self.colors["border"],
-            borderwidth=borderwidth,
+            borderwidth=0,
             padding=padding,
         )
         style.map(
             style_name,
-            background=[("disabled", mix_color(background, self.colors["bg"], 0.35))],
             foreground=[("disabled", self.colors["muted"])],
         )
+
+    def _create_button_style_image(self, fill: str, borderwidth: int = 0) -> ImageTk.PhotoImage:
+        size = 34
+        radius = 16
+        image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        outline = self.colors["border"] if borderwidth > 0 else mix_color(fill, self.colors["bg"], 0.18)
+        draw.rounded_rectangle(
+            (1, 1, size - 2, size - 2),
+            radius=radius,
+            fill=fill,
+            outline=outline,
+            width=1,
+        )
+        return ImageTk.PhotoImage(image)
+
+    def _create_swatch_image(self, primary: str, secondary: str) -> ImageTk.PhotoImage:
+        size = 24
+        image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.ellipse((1, 1, size - 2, size - 2), fill=primary, outline=secondary, width=2)
+        return ImageTk.PhotoImage(image)
 
     def _create_card(self, parent: tk.Widget) -> tk.Frame:
         return tk.Frame(
@@ -715,6 +799,21 @@ class TimeLapseApp:
 
         self._sync_capture_mode_ui()
 
+    def _change_output_resolution(self, _event: object | None = None) -> None:
+        if self.rendering or self.recorder.get_state() != RecorderState.IDLE:
+            self._sync_output_resolution_ui()
+            messagebox.showinfo("Recording active", "Stop the current recording before changing output resolution.")
+            return
+
+        try:
+            self.recorder.set_output_resolution(self.output_resolution_var.get())
+        except RuntimeError as error:
+            self._sync_output_resolution_ui()
+            messagebox.showerror("Output resolution unchanged", str(error))
+            return
+
+        self._sync_output_resolution_ui()
+
     def _change_theme_preset(self, _event: object | None = None) -> None:
         if self.rendering or self.recorder.get_state() != RecorderState.IDLE:
             self._sync_theme_ui()
@@ -804,6 +903,7 @@ class TimeLapseApp:
         self.projected_var.set(f"If stopped now: [{format_duration(projected_seconds)}]")
         self.frames_var.set(f"Captured frames: {frame_count}")
         self._sync_capture_mode_ui()
+        self._sync_output_resolution_ui()
         self._sync_timer_overlay_ui()
         self._sync_theme_ui()
 
@@ -813,6 +913,7 @@ class TimeLapseApp:
             self.stop_button.state(["disabled"])
             self.change_folder_button.state(["disabled"])
             self.capture_mode_box.state(["disabled"])
+            self.output_resolution_box.state(["disabled"])
             self.theme_box.state(["disabled"])
             self.timer_overlay_enabled_check.state(["disabled"])
             self.timer_overlay_theme_check.state(["disabled"])
@@ -828,6 +929,7 @@ class TimeLapseApp:
             self.stop_button.state(["disabled"])
             self.change_folder_button.state(["!disabled"])
             self.capture_mode_box.state(["!disabled", "readonly"])
+            self.output_resolution_box.state(["!disabled", "readonly"])
             self.theme_box.state(["!disabled", "readonly"])
             self.timer_overlay_enabled_check.state(["!disabled"])
             self.timer_overlay_theme_check.state(["!disabled"])
@@ -841,6 +943,7 @@ class TimeLapseApp:
             self.stop_button.state(["!disabled"])
             self.change_folder_button.state(["disabled"])
             self.capture_mode_box.state(["disabled"])
+            self.output_resolution_box.state(["disabled"])
             self.theme_box.state(["disabled"])
             self.timer_overlay_enabled_check.state(["disabled"])
             self.timer_overlay_theme_check.state(["disabled"])
@@ -856,6 +959,7 @@ class TimeLapseApp:
             self.stop_button.state(["!disabled"])
             self.change_folder_button.state(["disabled"])
             self.capture_mode_box.state(["disabled"])
+            self.output_resolution_box.state(["disabled"])
             self.theme_box.state(["disabled"])
             self.timer_overlay_enabled_check.state(["disabled"])
             self.timer_overlay_theme_check.state(["disabled"])
@@ -903,6 +1007,9 @@ class TimeLapseApp:
 
     def _sync_capture_mode_ui(self) -> None:
         self.capture_mode_var.set(self._capture_mode_label(self.recorder.get_capture_mode()))
+
+    def _sync_output_resolution_ui(self) -> None:
+        self.output_resolution_var.set(self.recorder.get_output_resolution())
 
     def _sync_theme_ui(self) -> None:
         self.theme_name_var.set(self.theme_name)

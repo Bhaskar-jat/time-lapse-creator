@@ -29,6 +29,14 @@ class CaptureMode(str, Enum):
     CAMERA_ONLY = "camera_only"
 
 
+OUTPUT_RESOLUTION_PRESETS: dict[str, tuple[int, int]] = {
+    "480p (854x480)": (854, 480),
+    "720p (1280x720)": (1280, 720),
+    "1080p (1920x1080)": (1920, 1080),
+}
+DEFAULT_OUTPUT_RESOLUTION = "480p (854x480)"
+
+
 def default_recordings_dir() -> Path:
     downloads_dir = Path.home() / "Downloads"
     base_dir = downloads_dir if downloads_dir.exists() else Path.home()
@@ -57,8 +65,8 @@ def _parse_int_setting(value: str, default: int, minimum: int, maximum: int) -> 
 
 @dataclass(slots=True)
 class AppConfig:
-    output_width: int = 1920
-    output_height: int = 1080
+    output_width: int = 854
+    output_height: int = 480
     fps: int = 30
     timelapse_speedup: int = 60
     webcam_diameter: int = 180
@@ -225,6 +233,12 @@ class TimeLapseRecorder:
             except ValueError:
                 self.config.capture_mode = CaptureMode.MERGED_WITH_CAMERA
 
+        saved_output_resolution = settings.get("output_resolution", "")
+        if saved_output_resolution in OUTPUT_RESOLUTION_PRESETS:
+            width, height = OUTPUT_RESOLUTION_PRESETS[saved_output_resolution]
+            self.config.output_width = width
+            self.config.output_height = height
+
         self.config.timer_overlay_enabled = _parse_bool_setting(
             settings.get("timer_overlay_enabled", ""),
             self.config.timer_overlay_enabled,
@@ -267,6 +281,7 @@ class TimeLapseRecorder:
             {
                 "recordings_dir": str(self.config.recordings_dir),
                 "capture_mode": self.config.capture_mode.value,
+                "output_resolution": self.get_output_resolution(),
                 "timer_overlay_enabled": "1" if self.config.timer_overlay_enabled else "0",
                 "timer_overlay_use_theme": "1" if self.config.timer_overlay_use_theme else "0",
                 "timer_overlay_color": self.config.timer_overlay_color,
@@ -300,6 +315,27 @@ class TimeLapseRecorder:
             self.config.capture_mode = capture_mode
             self._save_settings()
             return self.config.capture_mode
+
+    def get_output_resolution(self) -> str:
+        with self._lock:
+            size = self.config.output_size
+            for label, preset_size in OUTPUT_RESOLUTION_PRESETS.items():
+                if preset_size == size:
+                    return label
+            return DEFAULT_OUTPUT_RESOLUTION
+
+    def set_output_resolution(self, resolution_label: str) -> str:
+        with self._lock:
+            if self._state != RecorderState.IDLE:
+                raise RuntimeError("Output resolution can only be changed while recording is stopped.")
+            if resolution_label not in OUTPUT_RESOLUTION_PRESETS:
+                raise RuntimeError("Please select one of the supported output resolutions.")
+
+            width, height = OUTPUT_RESOLUTION_PRESETS[resolution_label]
+            self.config.output_width = width
+            self.config.output_height = height
+            self._save_settings()
+            return self.get_output_resolution()
 
     def get_timer_overlay_enabled(self) -> bool:
         with self._lock:
