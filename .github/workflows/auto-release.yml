@@ -1,0 +1,204 @@
+name: Auto Release (Main)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-release-main
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Check out repository (with tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+
+          latest_tag="$(git tag -l "v*" --sort=-v:refname | head -n 1 || true)"
+          tag_ver="${latest_tag#v}"
+
+          file_ver="$(python - <<'PY'
+          import pathlib
+          try:
+              import tomllib  # py3.11+
+          except ModuleNotFoundError:  # pragma: no cover
+              import tomli as tomllib  # type: ignore[import-not-found]
+
+          data = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
+          print(data["project"]["version"])
+          PY
+          )"
+
+          base_ver="$(printf "%s\n%s\n" "${tag_ver}" "${file_ver}" | grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+$' | sort -V | tail -n 1)"
+          if [[ -z "${base_ver}" ]]; then
+            echo "Could not determine a base semver (tag='${latest_tag}', file='${file_ver}')." >&2
+            exit 1
+          fi
+
+          IFS='.' read -r major minor patch <<<"${base_ver}"
+          if [[ -z "${major}" || -z "${minor}" || -z "${patch}" ]]; then
+            echo "Base version is not semver: ${base_ver}" >&2
+            exit 1
+          fi
+
+          patch="$((patch + 1))"
+          next_version="${major}.${minor}.${patch}"
+          next_tag="v${next_version}"
+
+          echo "version=${next_version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${next_tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Bump version in project files
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          python - <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          version = "${{ steps.version.outputs.version }}"
+          replacements = [
+              (pathlib.Path("pyproject.toml"), r'(?m)^version = "([^"]+)"\\s*$', f'version = "{version}"'),
+              (pathlib.Path("src/timelapse_creator/__init__.py"), r'(?m)^__version__ = "([^"]+)"\\s*$', f'__version__ = "{version}"'),
+          ]
+
+          for path, pattern, replacement in replacements:
+              text = path.read_text(encoding="utf-8")
+              new_text, count = re.subn(pattern, replacement, text)
+              if count != 1:
+                  raise SystemExit(f"Expected 1 replacement in {path}, got {count}")
+              path.write_text(new_text, encoding="utf-8")
+          PY
+
+      - name: Commit, tag, and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add pyproject.toml src/timelapse_creator/__init__.py
+          git commit -m "chore(release): ${TAG}"
+          git tag "${TAG}"
+
+          git push origin HEAD:main
+          git push origin "${TAG}"
+
+  build-macos:
+    runs-on: macos-latest
+    needs: prepare
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Build macOS app packages
+        run: python scripts/build.py
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: |
+            dist/Time Lapse Creator.app
+            dist/Time-Lapse-Creator-macOS.zip
+            dist/Time-Lapse-Creator.dmg
+
+  build-windows:
+    runs-on: windows-latest
+    needs: prepare
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Build Windows EXE
+        shell: pwsh
+        run: python scripts/build.py
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/Time Lapse Creator.exe
+
+  release:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - build-macos
+      - build-windows
+
+    steps:
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build
+          path: release-artifacts/macos
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: release-artifacts/windows
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: ${{ needs.prepare.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            release-artifacts/macos/**/*.zip
+            release-artifacts/macos/**/*.dmg
+            release-artifacts/windows/**/*.exe
