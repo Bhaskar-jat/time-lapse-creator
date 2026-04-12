@@ -8,11 +8,12 @@ Small cross-platform Python desktop app that records all connected displays as a
 - Captures every connected display and arranges them in one frame using the monitors' real screen layout.
 - Scales the merged desktop into a single output frame (default `480p`, adjustable up to `1080p` in the app).
 - Overlays the latest webcam frame as a circular picture-in-picture in the lower-right corner.
+- Shows today's date in a compact top-left overlay on rendered frames.
 - Records at a default cadence that turns **1 hour of real time into 1 minute of video**.
 - Displays the current recording duration and the estimated video length if you stopped immediately.
 - Saves sessions to your `Downloads/Time Lapse Creator/` folder by default.
 - Lets you change the save location from the app window before starting a recording.
-- Lets you switch between `Merged screens + camera` and `Camera only` capture modes.
+- Lets you switch between `Merged screens + camera`, `Screens only`, and `Camera only` capture modes.
 - Lets you choose output resolution in the app (`480p`, `720p`, or `1080p`).
 - Remembers the last-used save folder, capture mode, and output resolution between app launches.
 - Opens with a pink gradient theme by default.
@@ -54,6 +55,20 @@ Or install it as a package and use:
 ```bash
 pip install -e .
 time-lapse-creator
+```
+
+Qt migration preview UI (optional):
+
+```bash
+pip install -r requirements-qt.txt
+python main_qt.py
+```
+
+Or after editable install:
+
+```bash
+pip install -e ".[qt]"
+time-lapse-creator-qt
 ```
 
 ## Output

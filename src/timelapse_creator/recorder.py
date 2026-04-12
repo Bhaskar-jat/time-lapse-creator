@@ -27,6 +27,7 @@ class RecorderState(str, Enum):
 class CaptureMode(str, Enum):
     MERGED_WITH_CAMERA = "merged_with_camera"
     CAMERA_ONLY = "camera_only"
+    SCREENS_ONLY = "screens_only"
 
 
 OUTPUT_RESOLUTION_PRESETS: dict[str, tuple[int, int]] = {
@@ -602,9 +603,10 @@ class TimeLapseRecorder:
             desktop.paste(image, (x_pos, y_pos))
 
         fitted = self._fit_to_output(desktop)
-        webcam_frame = self.camera_feed.get_latest_frame()
-        if webcam_frame is not None:
-            fitted = self._overlay_webcam(fitted, webcam_frame, self.config.webcam_diameter)
+        if self.config.capture_mode == CaptureMode.MERGED_WITH_CAMERA:
+            webcam_frame = self.camera_feed.get_latest_frame()
+            if webcam_frame is not None:
+                fitted = self._overlay_webcam(fitted, webcam_frame, self.config.webcam_diameter)
         return self._overlay_recording_timer(fitted)
 
     def _build_camera_only_frame(self) -> Image.Image:

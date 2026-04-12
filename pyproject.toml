@@ -15,8 +15,14 @@ dependencies = [
     "Pillow>=10.4.0",
 ]
 
+[project.optional-dependencies]
+qt = [
+    "PySide6>=6.7.0",
+]
+
 [project.scripts]
 time-lapse-creator = "timelapse_creator.app:main"
+time-lapse-creator-qt = "timelapse_creator.app_qt:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

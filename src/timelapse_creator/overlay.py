@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import platform
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -163,6 +164,8 @@ def apply_timer_overlay(
         text_bbox = draw.textbbox((0, 0), timestamp, font=font, stroke_width=stroke_width)
         text_width = max(1, text_bbox[2] - text_bbox[0])
         text_height = max(1, text_bbox[3] - text_bbox[1])
+        text_offset_x = -text_bbox[0]
+        text_offset_y = -text_bbox[1]
         rendered_text_image: Image.Image | None = None
     else:
         stroke_width = 0
@@ -172,6 +175,8 @@ def apply_timer_overlay(
             (255, 255, 255, 255),
         )
         text_width, text_height = rendered_text_image.size
+        text_offset_x = 0
+        text_offset_y = 0
 
     box_left = margin
     box_bottom = image.height - margin
@@ -188,8 +193,8 @@ def apply_timer_overlay(
     )
 
     r, g, b = hex_to_rgb(color_hex) if is_valid_hex_color(color_hex) else (236, 72, 153)
-    text_x = box_left + (box_width - text_width) / 2
-    text_y = box_top + (box_height - text_height) / 2
+    text_x = box_left + (box_width - text_width) / 2 + text_offset_x
+    text_y = box_top + (box_height - text_height) / 2 + text_offset_y
 
     if rendered_text_image is not None:
         tinted = Image.new("RGBA", rendered_text_image.size, (r, g, b, 255))
@@ -212,5 +217,64 @@ def apply_timer_overlay(
             stroke_fill=(0, 0, 0, 230),
         )
 
-    return image.convert("RGB")
+    # Top-left date box (today), matching the timer treatment.
+    date_text = datetime.now().strftime("%Y-%m-%d")
+    date_font_probe = load_overlay_font(20)
+    date_scalable = isinstance(date_font_probe, ImageFont.FreeTypeFont)
+    if date_scalable:
+        date_font_size = max(16, int(box_height * 0.32))
+        date_font = load_overlay_font(date_font_size)
+        date_stroke = max(1, date_font_size // 18)
+        date_bbox = draw.textbbox((0, 0), date_text, font=date_font, stroke_width=date_stroke)
+        date_text_width = max(1, date_bbox[2] - date_bbox[0])
+        date_text_height = max(1, date_bbox[3] - date_bbox[1])
+        date_offset_x = -date_bbox[0]
+        date_offset_y = -date_bbox[1]
+        date_rendered_image: Image.Image | None = None
+    else:
+        date_stroke = 0
+        date_rendered_image = _overlay_text_bitmap_fallback((240, 64), date_text, (255, 255, 255, 255))
+        date_text_width, date_text_height = date_rendered_image.size
+        date_offset_x = 0
+        date_offset_y = 0
 
+    date_pad_x = max(12, int(box_width * 0.04))
+    date_pad_y = max(8, int(box_height * 0.09))
+    date_box_width = date_text_width + (date_pad_x * 2)
+    date_box_height = date_text_height + (date_pad_y * 2)
+    date_left = margin
+    date_top = margin
+    date_right = date_left + date_box_width
+    date_bottom = date_top + date_box_height
+    date_radius = max(10, int(date_box_height * 0.28))
+
+    draw.rounded_rectangle(
+        (date_left, date_top, date_right, date_bottom),
+        radius=date_radius,
+        fill=(0, 0, 0, 150),
+        outline=(255, 255, 255, 35),
+        width=1,
+    )
+
+    date_x = date_left + ((date_box_width - date_text_width) / 2) + date_offset_x
+    date_y = date_top + ((date_box_height - date_text_height) / 2) + date_offset_y
+    if date_rendered_image is not None:
+        date_shadow = Image.new("RGBA", date_rendered_image.size, (0, 0, 0, 120))
+        date_mask = date_rendered_image.split()[-1]
+        date_shadow.putalpha(date_mask)
+        date_text_img = Image.new("RGBA", date_rendered_image.size, (255, 255, 255, 255))
+        date_text_img.putalpha(date_mask)
+        image.alpha_composite(date_shadow, (int(date_x + 2), int(date_y + 2)))
+        image.alpha_composite(date_text_img, (int(date_x), int(date_y)))
+    else:
+        draw.text((date_x + 1, date_y + 1), date_text, font=date_font, fill=(0, 0, 0, 120))
+        draw.text(
+            (date_x, date_y),
+            date_text,
+            font=date_font,
+            fill=(255, 255, 255, 235),
+            stroke_width=date_stroke,
+            stroke_fill=(0, 0, 0, 180),
+        )
+
+    return image.convert("RGB")

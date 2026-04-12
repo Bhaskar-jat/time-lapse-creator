@@ -67,12 +67,9 @@ class TimeLapseApp:
         self.main_frame: tk.Frame | None = None
         self._preview_image: ImageTk.PhotoImage | None = None
         self._theme_buttons: list[tk.Button] = []
-        self._theme_swatch_images: list[ImageTk.PhotoImage] = []
         self._preset_preview_canvases: list[tk.Canvas] = []
         self._custom_color_buttons: list[ttk.Button] = []
         self._glow_layers: dict[str, tk.Canvas] = {}
-        self._button_style_images: dict[str, tuple[ImageTk.PhotoImage, ImageTk.PhotoImage]] = {}
-        self._button_style_generation = 0
 
         self._build_ui()
         self._update_ui()
@@ -235,7 +232,7 @@ class TimeLapseApp:
             settings_card,
             state="readonly",
             textvariable=self.capture_mode_var,
-            values=("Merged screens + camera", "Camera only"),
+            values=("Merged screens + camera", "Screens only", "Camera only"),
             style="Dark.TCombobox",
         )
         self.capture_mode_box.grid(row=6, column=0, sticky="ew")
@@ -311,27 +308,21 @@ class TimeLapseApp:
         swatch_row = tk.Frame(settings_card, bg=self.colors["surface"])
         swatch_row.grid(row=12, column=0, sticky="w")
         self._theme_buttons = []
-        self._theme_swatch_images = []
         for index, (primary, secondary) in enumerate(ACCENT_SWATCHES):
-            swatch_image = self._create_swatch_image(primary, secondary)
             swatch_button = tk.Button(
                 swatch_row,
-                image=swatch_image,
-                bg=self.colors["surface"],
-                activebackground=self.colors["surface"],
+                width=3,
+                height=1,
+                bg=primary,
+                activebackground=secondary,
                 bd=0,
                 relief=tk.FLAT,
-                highlightthickness=0,
-                padx=0,
-                pady=0,
-                width=28,
-                height=28,
-                cursor="hand2",
+                highlightthickness=1,
+                highlightbackground=self.colors["border"],
                 command=lambda accent=primary, accent_2=secondary: self._apply_accent_pair(accent, accent_2),
             )
             swatch_button.grid(row=0, column=index, padx=(0, 8))
             self._theme_buttons.append(swatch_button)
-            self._theme_swatch_images.append(swatch_image)
 
         tk.Label(
             settings_card,
@@ -442,7 +433,7 @@ class TimeLapseApp:
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             preview_card,
-            text="Live circular preview used for the webcam overlay. In camera-only mode, this becomes the full timelapse frame.",
+            text="Live circular preview used for the webcam overlay. In camera-only mode, this becomes the full timelapse frame; in screens-only mode, face overlay is disabled.",
             bg=self.colors["surface"],
             fg=self.colors["muted"],
             font=("SF Pro Text", 10),
@@ -472,8 +463,6 @@ class TimeLapseApp:
     def _configure_styles(self) -> None:
         style = ttk.Style()
         style.theme_use("clam")
-        self._button_style_images = {}
-        self._button_style_generation += 1
         option_pairs = (
             ("*TCombobox*Listbox*Background", self.colors["surface_alt"]),
             ("*TCombobox*Listbox*Foreground", self.colors["text"]),
@@ -555,75 +544,22 @@ class TimeLapseApp:
         borderwidth: int = 0,
     ) -> None:
         style = ttk.Style()
-        normal_image = self._create_button_style_image(background, borderwidth=borderwidth)
-        disabled_image = self._create_button_style_image(
-            mix_color(background, self.colors["bg"], 0.35),
-            borderwidth=borderwidth,
-        )
-        self._button_style_images[style_name] = (normal_image, disabled_image)
-
-        element_name = f"{style_name.replace('.', '_')}_{self._button_style_generation}"
-        style.element_create(
-            element_name,
-            "image",
-            normal_image,
-            ("disabled", disabled_image),
-            border=14,
-            sticky="nsew",
-        )
-        style.layout(
-            style_name,
-            [
-                (
-                    element_name,
-                    {
-                        "sticky": "nsew",
-                        "children": [
-                            (
-                                "Button.padding",
-                                {
-                                    "sticky": "nsew",
-                                    "children": [("Button.label", {"sticky": "nsew"})],
-                                },
-                            )
-                        ],
-                    },
-                )
-            ],
-        )
         style.configure(
             style_name,
             font=("SF Pro Text", 10, "bold"),
             foreground=foreground,
-            borderwidth=0,
+            background=background,
+            bordercolor=self.colors["border"],
+            lightcolor=self.colors["border"],
+            darkcolor=self.colors["border"],
+            borderwidth=borderwidth,
             padding=padding,
         )
         style.map(
             style_name,
+            background=[("disabled", mix_color(background, self.colors["bg"], 0.35))],
             foreground=[("disabled", self.colors["muted"])],
         )
-
-    def _create_button_style_image(self, fill: str, borderwidth: int = 0) -> ImageTk.PhotoImage:
-        size = 34
-        radius = 16
-        image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(image)
-        outline = self.colors["border"] if borderwidth > 0 else mix_color(fill, self.colors["bg"], 0.18)
-        draw.rounded_rectangle(
-            (1, 1, size - 2, size - 2),
-            radius=radius,
-            fill=fill,
-            outline=outline,
-            width=1,
-        )
-        return ImageTk.PhotoImage(image)
-
-    def _create_swatch_image(self, primary: str, secondary: str) -> ImageTk.PhotoImage:
-        size = 24
-        image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(image)
-        draw.ellipse((1, 1, size - 2, size - 2), fill=primary, outline=secondary, width=2)
-        return ImageTk.PhotoImage(image)
 
     def _create_card(self, parent: tk.Widget) -> tk.Frame:
         return tk.Frame(
@@ -1105,11 +1041,15 @@ class TimeLapseApp:
         self._sync_timer_overlay_ui()
 
     def _capture_mode_label(self, capture_mode: CaptureMode) -> str:
+        if capture_mode == CaptureMode.SCREENS_ONLY:
+            return "Screens only"
         if capture_mode == CaptureMode.CAMERA_ONLY:
             return "Camera only"
         return "Merged screens + camera"
 
     def _capture_mode_from_label(self, label: str) -> CaptureMode:
+        if label == "Screens only":
+            return CaptureMode.SCREENS_ONLY
         if label == "Camera only":
             return CaptureMode.CAMERA_ONLY
         return CaptureMode.MERGED_WITH_CAMERA
