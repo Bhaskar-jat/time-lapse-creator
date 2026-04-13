@@ -489,7 +489,7 @@ class TimeLapseRecorder:
         )
 
     def _write_thumbnail(self, session: SessionInfo, source_frame: Path) -> None:
-        thumbnail_path = session.session_dir / "thumbnail.jpg"
+        thumbnail_path = session.frames_dir / "thumbnail.jpg"
         try:
             with Image.open(source_frame) as image:
                 image = image.convert("RGB")
@@ -511,14 +511,13 @@ class TimeLapseRecorder:
 
     def _start_new_session_locked(self) -> None:
         timestamp = datetime.now()
-        session_name = timestamp.strftime("session-%Y%m%d-%H%M%S")
-        session_dir = self.recordings_dir / session_name
-        frames_dir = session_dir / "frames"
+        ts = timestamp.strftime("%Y%m%d-%H%M%S")
+        frames_dir = self.recordings_dir / f"frames-{ts}"
         frames_dir.mkdir(parents=True, exist_ok=True)
 
-        self._session_dir = session_dir
+        self._session_dir = self.recordings_dir
         self._frames_dir = frames_dir
-        self._video_path = session_dir / "timelapse.mp4"
+        self._video_path = self.recordings_dir / f"timelapse-{ts}.mp4"
         self._started_at = timestamp
         self._frame_count = 0
         self._accumulated_seconds = 0.0
